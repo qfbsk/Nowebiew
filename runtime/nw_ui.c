@@ -3433,6 +3433,18 @@ static void nw_draw(void) {
                 touch_fire((double)cx, (double)cy, hit_test((float)cx, (float)cy), 1);
             }
         }
+        { /* NW_SCROLL2=dxN：第二帧再滚（先 NW_RESIZE 后滚动的组合测试——
+             首帧滚动会按旧布局钳位） */
+            const char* scroll2 = getenv("NW_SCROLL2");
+            if (scroll2) {
+                int d = 0, times = 1;
+                sscanf(scroll2, "%dx%d", &d, &times);
+                if (times < 1) times = 1;
+                dbg("[nw] test: synth wheel2 delta %d x%d\n", d, times);
+                for (int wi = 0; wi < times; wi++)
+                    PostMessageW(g_hwnd, WM_MOUSEWHEEL, MAKEWPARAM(0, (WORD)d), 0);
+            }
+        }
         const char* click2 = getenv("NW_CLICK2");
         if (click2) {
             int cx = 0, cy = 0;
@@ -4191,6 +4203,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     case WM_MOUSEWHEEL: {
+        /* 根（body）overflow:hidden = 页面滚动锁（浏览器 html/body overflow 语义）。
+         * 不锁的话 overflow:hidden 的页（如幻灯片 deck）能被滚走——深色主题下
+         * 露出页底色（黑背景）+ 相邻 slide 透叠（内容透明） */
+        if (g_root && g_root->overflow_hidden) return 0;
         int delta = (short)HIWORD(wp);
         g_scroll_target -= delta; /* 每格 120 → 3 行近似 */
         float max_scroll = g_content_h - (float)g_ch;

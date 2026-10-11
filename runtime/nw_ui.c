@@ -1597,14 +1597,25 @@ int nw_el_closest(NWNode* n, const char* sel) {
 }
 
 /* ===== 事件注册 ===== */
+#define NW_PAGES_CAP 16 /* 页表容量（nw_nav_bind 截断；g_page_load 同尺寸） */
 static void (*g_load_fn)(void) = NULL;
+/* 多页：load 按页存储（nw_dom_on_load 在该页 build 时调用，g_cur_page 已指向
+ * 本页）。浏览器语义：每次导航=新文档=load 必发；单全局槽会让后建页覆盖
+ * 先建页的 handler，切回已建页时误发别人的 onload */
+static void (*g_page_load[NW_PAGES_CAP])(void) = { NULL };
+static int g_pages_n; /* 前向声明：定义与页表同处（3850 附近，带初始化） */
 static void (*g_key_fn)(int vk) = NULL;
 static void (*g_doc_click_fn)(double, double, NWNode*) = NULL;
 static void (*g_key_event_fn)(const wchar_t*) = NULL;
 static void (*g_touch_start_fn)(double, double, NWNode*) = NULL;
 static void (*g_touch_end_fn)(double, double, NWNode*) = NULL;
 
-void nw_dom_on_load(void (*fn)(void)) { g_load_fn = fn; }
+void nw_dom_on_load(void (*fn)(void)) {
+    g_load_fn = fn;
+    /* g_cur_page=-1 = main 里启动页 build 先于 ensure_root：落到页 0 */
+    int pg = g_cur_page >= 0 ? g_cur_page : 0;
+    if (g_pages_n > 0 && pg < g_pages_n) g_page_load[pg] = fn;
+}
 void nw_dom_on_click(NWNode* n, void (*fn)(NWNode*)) { if (n) n->onclick = fn; }
 void nw_dom_on_key(void (*fn)(int vk)) { g_key_fn = fn; }
 void nw_dom_on_doc_click(void (*fn)(double x, double y, NWNode* target)) { g_doc_click_fn = fn; }
@@ -1671,6 +1682,19 @@ double nw_timer_after(double ms, void (*fn)(void)) {
     UINT id = (UINT)(NW_TIMER_ID_BASE + slot);
     if (SetTimer(g_hwnd, id, (UINT)(ms < 1.0 ? 1.0 : ms), NULL) == 0) { g_timer_fns[slot] = NULL; return -1; }
     return (double)id;
+}
+
+/* 全部挂起定时器作废。浏览器导航语义：切页=旧文档卸载=其 setTimeout 链
+ * 全部终止（如 Blog 时钟的 500ms 自续链）；否则旧页定时器跨页存活，
+ * 与新页 load 重启的链叠加增殖 */
+void nw_timers_clear(void) {
+    if (!g_hwnd) return;
+    for (int i = 0; i < NW_TIMER_MAX; i++) {
+        if (g_timer_fns[i]) {
+            KillTimer(g_hwnd, (UINT)(NW_TIMER_ID_BASE + i));
+            g_timer_fns[i] = NULL;
+        }
+    }
 }
 
 /* ===== 正则子集（回溯 VM：^ $ \d \D \w \W \s \S . [类] () 捕获 | * + ?） =====
@@ -3441,6 +3465,12 @@ static void nw_draw(void) {
         PostMessageW(g_hwnd, WM_CLOSE, 0, 0); /* 测试结束自动退出 */
     } else if (!snap3_done && getenv("NW_CLICK2")) {
         snap3_done = 1;
+        { /* NW_SNAP3_DELAY=秒：click2 后延迟再截（异步填充——setTimeout 链是否
+             存活的判定：即时截图文本未写入是时序假象，延迟数秒仍缺才是真丢失） */
+            const char* d3 = getenv("NW_SNAP3_DELAY");
+            if (d3) { double ds = atof(d3); if (ds > 0.0) { SetTimer(g_hwnd, 8, (UINT)(ds * 1000.0), NULL); return; } }
+        }
+        if (getenv("NW_DUMP")) nw_dump_nodes(); /* click2 后几何（往返切换漂移排查） */
         const char* snap3 = getenv("NW_SNAPSHOT3");
         if (snap3) nw_snapshot_bmp(snap3);
         PostMessageW(g_hwnd, WM_CLOSE, 0, 0);
@@ -3829,7 +3859,6 @@ static int g_media_variant = 0;
 static void (*g_media_restyle)(int variant) = NULL;
 
 /* ===== 多页面导航 ===== */
-#define NW_PAGES_CAP 16
 static NWPageGen g_pages[NW_PAGES_CAP];
 static int g_pages_n = 0;
 
@@ -3901,6 +3930,11 @@ void nw_nav_go(int idx) {
     if (g_pages[idx].restyle) g_pages[idx].restyle(g_media_variant);
     nw_restyle_now();  /* display 规则重放 + relayout */
     if (g_pages[idx].init) g_pages[idx].init();
+    /* 浏览器导航语义：到达即旧文档定时器作废 + 本文档 load 派发。
+     * 不补发 load 的话，非启动页的 body onload（初始化/时钟自续链）
+     * 永远不执行——切回该页动态内容全灭（引言上移、时钟消失） */
+    nw_timers_clear();
+    if (g_page_load[idx]) g_page_load[idx]();
     if (g_pages[idx].title && g_hwnd) SetWindowTextW(g_hwnd, g_pages[idx].title());
     sel_clear();
     if (g_hwnd) InvalidateRect(g_hwnd, NULL, FALSE);
@@ -4069,6 +4103,14 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             KillTimer(hwnd, 7);
             const char* sd_snap = getenv("NW_SNAPSHOT");
             if (sd_snap) nw_snapshot_bmp(sd_snap);
+            PostMessageW(hwnd, WM_CLOSE, 0, 0);
+            return 0;
+        }
+        if (wp == 8) { /* NW_SNAP3_DELAY 到点：click2 后延迟截图并退出 */
+            KillTimer(hwnd, 8);
+            if (getenv("NW_DUMP")) nw_dump_nodes();
+            const char* sd_snap3 = getenv("NW_SNAPSHOT3");
+            if (sd_snap3) nw_snapshot_bmp(sd_snap3);
             PostMessageW(hwnd, WM_CLOSE, 0, 0);
             return 0;
         }

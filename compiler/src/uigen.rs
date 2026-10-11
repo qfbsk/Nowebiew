@@ -493,7 +493,9 @@ fn cascade<'a>(
             matched.push((spec, ri, &rule.decls));
         }
     }
-    matched.sort_by_key(|(spec, ri, _)| (*spec, *ri));
+    /* key=(spec,ri) 中 ri 为唯一规则索引 → 全序；unstable 与 stable 结果一致。
+     * 必须 unstable：本构建（msvc+shim）的稳定排序 driftsort 在 n>=21 时栈溢出 */
+    matched.sort_unstable_by_key(|(spec, ri, _)| (*spec, *ri));
     let mut out = Vec::new();
     for (_, _, decls) in matched {
         for d in decls {
@@ -759,7 +761,8 @@ fn cascade_dyn<'a>(
         };
         matched.push((spec, ri, &rule.decls, guard));
     }
-    matched.sort_by_key(|(spec, ri, _, _)| (*spec, *ri));
+    /* 同上：ri 唯一 → 全序；driftsort 栈溢出规避 */
+    matched.sort_unstable_by_key(|(spec, ri, _, _)| (*spec, *ri));
     let mut out = Vec::new();
     for (_, ri, decls, guard) in &matched {
         let rule = &rules[*ri];

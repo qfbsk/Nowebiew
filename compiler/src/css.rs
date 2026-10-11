@@ -257,9 +257,10 @@ pub fn media_segments(rules: &[Rule]) -> Vec<MediaSeg> {
             if let Some(v) = m.maxh { ht.push(v); }
         }
     }
-    wt.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    /* unstable：值相等者内容完全相同，稳定性无意义；driftsort 栈溢出规避（msvc+shim 构建） */
+    wt.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
     wt.dedup();
-    ht.sort_by(|a, b| a.partial_cmp(b).unwrap());
+    ht.sort_unstable_by(|a, b| a.partial_cmp(b).unwrap());
     ht.dedup();
     /* 断点两侧各一段：(-inf, t0], (t0, t1], ..., (tn, +inf) */
     let mut wb: Vec<(f32, f32)> = Vec::new();

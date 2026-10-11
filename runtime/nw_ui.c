@@ -76,6 +76,10 @@ static NWNode* hit_test(float px, float py_raw);
 static int res_find(const wchar_t* path);
 static void nw_snapshot_bmp(const char* path);
 static wchar_t* gather_selection(void);
+static int  text_index_at(NWNode* n, float px, float py);
+static NWNode* text_node_at(float px, float py);
+static NWNode* ta_at(float px, float py);
+static void sel_highlight(ID2D1RenderTarget* rt, NWNode* n, IDWriteTextLayout* l, float ox, float oy);
 static void touch_fire(double x, double y, NWNode* target, int up);
 static int border_clip_push(ID2D1RenderTarget* rt, NWNode* n, float rad, float sy);
 static ID2D1Layer* g_layer_tmp;
@@ -175,6 +179,7 @@ struct NWNode {
                                      滚动（浏览器语义；否则 wheel 滚 5px 时
                                      hud 按钮视觉漂移 + 命中区错位=乱走点不中） */
     int page_id;                  /* 所属页（多页导航） */
+    int order;                    /* 文档序（= g_nodes 下标）——文本选择跨节点排序用 */
     int caret;                    /* textarea 光标（字符序） */
     int is_ta;                    /* textarea 标记 */
     int focused;
@@ -211,6 +216,7 @@ static int g_hover_stale = 0;
 void nw_ensure_root(void);
 
 static void node_register(NWNode* n) {
+    n->order = g_node_count;   /* 文档序：g_nodes 按下标即文档序 */
     if (g_node_count < NW_NODES_CAP) g_nodes[g_node_count++] = n;
 }
 
@@ -1456,7 +1462,14 @@ int nw_el_closest(NWNode* n, const char* sel) {
             char alt[128];
             if (l >= 128) l = 127;
             memcpy(alt, p, l); alt[l] = 0;
-            if (closest_compound_match(c, alt)) return 1;
+            /* 去首尾空白："a, button" 按逗号切出 " button"——带空格的 tag
+             * 永远匹配不上 → closest 恒假 → 点按钮时文档级点击照常触发 */
+            char* s = alt;
+            while (*s == ' ' || *s == '\t') s++;
+            char* e = s + strlen(s);
+            while (e > s && (e[-1] == ' ' || e[-1] == '\t')) e--;
+            *e = 0;
+            if (*s && closest_compound_match(c, s)) return 1;
             p = q ? q + 1 : p + l;
         }
     }
@@ -2926,6 +2939,16 @@ static void draw_node_body(ID2D1RenderTarget* rt, NWNode* n, float sy) {
         if (!n->color_set) nw_st_color_inh(n); /* CSS 继承：取祖先链最近显式色 */
         IDWriteTextLayout* l = get_layout(n, n->w > 0 ? n->w : 1.0f);
         if (l) {
+            /* 文本绘制原点 = 内容盒左上（盒语义含 padding/border 偏移）；
+             * 裸文本子节点盒即内容盒，不加偏移（themeBtn ☾ 曾被左边框裁半）。
+             * 选择高亮/阴影/正文共用同一原点，保证三者像素对齐。 */
+            float tox = n->x, toy = n->y + sy;
+            if (n->tag && strcmp(n->tag, "text") != 0) {
+                tox += n->border_w[3] + n->st.padding[3];
+                toy += n->border_w[0] + n->st.padding[0];
+            }
+            /* 文本选择高亮（先底色后文字） */
+            sel_highlight(rt, n, l, tox, toy);
             D2D1_COLOR_F c = { n->color[0], n->color[1], n->color[2], n->color_set ? n->color[3] : 1.0f };
             g_brush->lpVtbl->SetColor(g_brush, &c);
             /* text-shadow（先画影再画字） */
@@ -2937,25 +2960,11 @@ static void draw_node_body(ID2D1RenderTarget* rt, NWNode* n, float sy) {
                 if (n->ts_uy == 2) tdy = n->ts_dy * n->h / 100.0f;
                 D2D1_COLOR_F sc = { n->ts_c[0], n->ts_c[1], n->ts_c[2], n->ts_c[3] };
                 g_brush->lpVtbl->SetColor(g_brush, &sc);
-                {
-                    float tox = n->x, toy = n->y + sy;
-                    if (n->tag && strcmp(n->tag, "text") != 0) {
-                        tox += n->border_w[3] + n->st.padding[3];
-                        toy += n->border_w[0] + n->st.padding[0];
-                    }
-                    D2D1_POINT_2F so = { tox + tdx, toy + tdy };
-                    rt->lpVtbl->DrawTextLayout(rt, so, l, (ID2D1Brush*)g_brush, D2D1_DRAW_TEXT_OPTIONS_NONE);
-                }
+                D2D1_POINT_2F so = { tox + tdx, toy + tdy };
+                rt->lpVtbl->DrawTextLayout(rt, so, l, (ID2D1Brush*)g_brush, D2D1_DRAW_TEXT_OPTIONS_NONE);
             }
             D2D1_COLOR_F c2 = { n->color[0], n->color[1], n->color[2], n->color_set ? n->color[3] : 1.0f };
             g_brush->lpVtbl->SetColor(g_brush, &c2);
-            /* 元素自带文本（textContent）：原点 = 内容盒左上（盒语义含 padding/border 偏移）；
-             * 裸文本子节点盒即内容盒，不加偏移（themeBtn ☾ 曾被左边框裁半） */
-            float tox = n->x, toy = n->y + sy;
-            if (n->tag && strcmp(n->tag, "text") != 0) {
-                tox += n->border_w[3] + n->st.padding[3];
-                toy += n->border_w[0] + n->st.padding[0];
-            }
             D2D1_POINT_2F origin = { tox, toy };
             rt->lpVtbl->DrawTextLayout(rt, origin, l, (ID2D1Brush*)g_brush, D2D1_DRAW_TEXT_OPTIONS_NONE);
         }
@@ -3362,36 +3371,163 @@ static int cursor_hand_zone(void) {
     return 0;
 }
 
-/* ===== 文本选择（简化：单节点内拖选；Ctrl+C 复制） ===== */
-static NWNode* g_sel_node = NULL;
-static int g_sel_start = -1, g_sel_end = -1;
+/* I 形光标区：指针落在可选文本上（textarea 或普通文本节点） */
+static int cursor_text_zone(void) {
+    POINT p;
+    if (!GetCursorPos(&p) || !g_hwnd) return 0;
+    ScreenToClient(g_hwnd, &p);
+    if (ta_at((float)p.x, (float)p.y) != NULL) return 1;
+    return text_node_at((float)p.x, (float)p.y) != NULL;
+}
 
-static void sel_clear(void) { g_sel_node = NULL; g_sel_start = g_sel_end = -1; }
+/* ===== 文本选择（浏览器语义：跨节点拖选 + 选区高亮 + Ctrl+C） =====
+ * 锚点/焦点各为 (节点, 字符索引)；节点间先后用 NWNode.order（文档序）。
+ * 索引换算走 DWrite HitTestPoint——按比例均分在折行/多行/字距下必然错位。 */
+typedef struct { NWNode* node; int idx; } NWSelPos;
+static NWSelPos g_sel_a = { NULL, -1 };   /* 锚点（按下处） */
+static NWSelPos g_sel_b = { NULL, -1 };   /* 焦点（拖动处） */
 
+static void sel_clear(void) {
+    g_sel_a.node = g_sel_b.node = NULL;
+    g_sel_a.idx = g_sel_b.idx = -1;
+}
+static void sel_begin(NWNode* n, int idx) {
+    g_sel_a.node = g_sel_b.node = n;
+    g_sel_a.idx = g_sel_b.idx = idx;
+}
+static void sel_extend(NWNode* n, int idx) {
+    if (!n) return;
+    if (!g_sel_a.node) { sel_begin(n, idx); return; }
+    g_sel_b.node = n; g_sel_b.idx = idx;
+}
+
+/* 文本绘制原点（与 draw_node_body 同口径：元素带文本时加 border+padding） */
+static void text_origin(NWNode* n, float* ox, float* oy) {
+    *ox = n->x; *oy = n->y;
+    if (n->tag && strcmp(n->tag, "text") != 0) {
+        *ox += n->border_w[3] + n->st.padding[3];
+        *oy += n->border_w[0] + n->st.padding[0];
+    }
+}
+
+/* 节点内字符索引：命中点 → 字符边界（DWrite HitTestPoint） */
+static int text_index_at(NWNode* n, float px, float py) {
+    if (!n || !n->text || n->text_len <= 0) return 0;
+    IDWriteTextLayout* l = get_layout(n, n->w > 0 ? n->w : 1.0f);
+    if (!l) return 0;
+    float ox, oy;
+    text_origin(n, &ox, &oy);
+    float sy = (n->st.pos_kind == 0 && !n->no_scroll) ? -g_scroll_y : 0.0f;
+    BOOL trailing = FALSE, inside = FALSE;
+    DWRITE_HIT_TEST_METRICS m;
+    if (l->lpVtbl->HitTestPoint(l, px - ox, py - (oy + sy), &trailing, &inside, &m) != S_OK) return 0;
+    int idx = (int)m.textPosition + (trailing ? 1 : 0);
+    if (idx < 0) idx = 0;
+    if (idx > n->text_len) idx = n->text_len;
+    return idx;
+}
+
+/* 按点取文本节点：文档序最晚者即最上层（与 hit_test 字典序同解） */
+static NWNode* text_node_at(float px, float py) {
+    NWNode* best = NULL;
+    for (int i = 0; i < g_node_count; i++) {
+        NWNode* n = g_nodes[i];
+        if (!n || !n->text || n->text_len <= 0 || n->is_ta) continue;
+        if (n->detached || n->manual_hidden || n->st.display == 1) continue;
+        if (n->tag && (!strcmp(n->tag, "linebox") || !strcmp(n->tag, "floatrow"))) continue;
+        if (px < n->x || px >= n->x + n->w) continue;
+        if (n->st.pos_kind == 0 && !n->no_scroll) {
+            if (!(py >= n->y - g_scroll_y && py < n->y - g_scroll_y + n->h)) continue;
+        } else if (py < n->y || py >= n->y + n->h) continue;
+        int in_ta = 0;
+        for (NWNode* p = n; p; p = p->parent) {
+            if (p->is_ta) { in_ta = 1; break; }
+            /* 表单控件内的文本不可选（浏览器 UA 语义），否则点按钮会拖出选区 */
+            if (p->tag && (!strcmp(p->tag, "button") || !strcmp(p->tag, "input") || !strcmp(p->tag, "select"))) { in_ta = 1; break; }
+        }
+        if (in_ta) continue;
+        best = n;
+    }
+    return best;
+}
+
+/* 节点落在选区内的字符区间 [a,b)；不在则返回 0 */
+static int sel_range_in(NWNode* n, int* a, int* b) {
+    if (!g_sel_a.node || !g_sel_b.node || !n->text || n->text_len <= 0) return 0;
+    NWNode *A = g_sel_a.node, *B = g_sel_b.node;
+    int ia = g_sel_a.idx, ib = g_sel_b.idx;
+    if (A->order > B->order || (A == B && ia > ib)) {
+        NWNode* tn = A; A = B; B = tn;
+        int t = ia; ia = ib; ib = t;
+    }
+    if (n->order < A->order || n->order > B->order) return 0;
+    *a = (n == A) ? ia : 0;
+    *b = (n == B) ? ib : n->text_len;
+    if (*a < 0) *a = 0;
+    if (*b > n->text_len) *b = n->text_len;
+    return (*b > *a);
+}
+
+/* 选区高亮：HitTestTextRange 取字形矩形（多行自动逐行分段） */
+static void sel_highlight(ID2D1RenderTarget* rt, NWNode* n, IDWriteTextLayout* l, float ox, float oy) {
+    int a, b;
+    if (!sel_range_in(n, &a, &b)) return;
+    UINT32 need = 0;
+    /* 两次调用模式：首查数量时容量 0 → E_NOT_SUFFICIENT_BUFFER(0x8007007A) 并回填 need */
+    HRESULT hr = l->lpVtbl->HitTestTextRange(l, (UINT32)a, (UINT32)(b - a), 0.0f, 0.0f, NULL, 0, &need);
+    if ((hr != S_OK && hr != (HRESULT)0x8007007A) || need == 0) return;
+    if (need > 256) need = 256;
+    DWRITE_HIT_TEST_METRICS m[256];
+    UINT32 got = 0;
+    if (l->lpVtbl->HitTestTextRange(l, (UINT32)a, (UINT32)(b - a), 0.0f, 0.0f, m, need, &got) != S_OK) return;
+    D2D1_COLOR_F hl = { 0.0f, 0.47f, 0.84f, 0.32f };   /* 选区蓝（半透明，文字仍可读） */
+    g_brush->lpVtbl->SetColor(g_brush, &hl);
+    for (UINT32 i = 0; i < got; i++) {
+        D2D1_RECT_F r = { ox + m[i].left, oy + m[i].top,
+                          ox + m[i].left + m[i].width, oy + m[i].top + m[i].height };
+        rt->lpVtbl->FillRectangle(rt, &r, (ID2D1Brush*)g_brush);
+    }
+}
+
+/* 选区文本：按文档序拼接（跨节点以 \r\n 分隔——剪贴板块间语义） */
 static wchar_t* gather_selection(void) {
-    if (!g_sel_node || g_sel_start < 0 || g_sel_end <= g_sel_start) return NULL;
-    int a = g_sel_start < g_sel_end ? g_sel_start : g_sel_end;
-    int b = g_sel_start < g_sel_end ? g_sel_end : g_sel_start;
-    if (b > g_sel_node->text_len) b = g_sel_node->text_len;
-    if (b <= a) return NULL;
-    wchar_t* out = (wchar_t*)malloc((size_t)(b - a + 1) * sizeof(wchar_t));
-    memcpy(out, g_sel_node->text + a, (size_t)(b - a) * sizeof(wchar_t));
-    out[b - a] = 0;
+    if (!g_sel_a.node || !g_sel_b.node) return NULL;
+    NWNode *A = g_sel_a.node, *B = g_sel_b.node;
+    int ia = g_sel_a.idx, ib = g_sel_b.idx;
+    if (A->order > B->order || (A == B && ia > ib)) {
+        NWNode* tn = A; A = B; B = tn;
+        int t = ia; ia = ib; ib = t;
+    }
+    size_t cap = 256, len = 0;
+    wchar_t* out = (wchar_t*)malloc(cap * sizeof(wchar_t));
+    int first = 1;
+    for (int i = A->order; i <= B->order && i < g_node_count; i++) {
+        NWNode* n = g_nodes[i];
+        if (!n || !n->text || n->text_len <= 0) continue;
+        if (n->detached || n->st.display == 1) continue;
+        int a = (n == A) ? ia : 0;
+        int b = (n == B) ? ib : n->text_len;
+        if (a < 0) a = 0;
+        if (b > n->text_len) b = n->text_len;
+        if (b <= a) continue;
+        size_t add = (size_t)(b - a) + (first ? 0 : 2);
+        if (len + add + 2 > cap) {
+            while (len + add + 2 > cap) cap *= 2;
+            out = (wchar_t*)realloc(out, cap * sizeof(wchar_t));
+        }
+        if (!first) { out[len++] = L'\r'; out[len++] = L'\n'; }   /* 跨节点换行 */
+        first = 0;
+        memcpy(out + len, n->text + a, (size_t)(b - a) * sizeof(wchar_t));
+        len += (size_t)(b - a);
+    }
+    if (len == 0) { free(out); return NULL; }
+    out[len] = 0;
     return out;
 }
 
 static void copy_selection(void) {
     wchar_t* s = gather_selection();
     if (s) { nw_clip_set(s); free(s); }
-}
-
-/* 文本节点内字符索引（命中点 → 最近字符边界；简化：按比例均分） */
-static int text_index_at(NWNode* n, float px) {
-    if (!n->text || n->text_len == 0 || n->w <= 0) return 0;
-    float t = (px - n->x) / n->w;
-    if (t < 0) t = 0;
-    if (t > 1) t = 1;
-    return (int)(t * n->text_len);
 }
 
 /* ===== textarea ===== */
@@ -3429,9 +3565,8 @@ static NWNode* ta_at(float px, float py) {
     return NULL;
 }
 static void ta_click_caret(NWNode* n, float px, float py) {
-    (void)py;
     if (!n) return;
-    ta_move_caret(n, text_index_at(n, px));
+    ta_move_caret(n, text_index_at(n, px, py));
 }
 static void ta_draw(ID2D1RenderTarget* rt, NWNode* n, float sy) {
     /* textarea 绘制：文本 + 光标竖线 */
@@ -3737,6 +3872,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     case WM_MOUSEMOVE: {
         int x = (short)LOWORD(lp), y = (short)HIWORD(lp);
         hover_update((float)x, (float)y);
+        /* 左键按住拖动 → 扩展选区焦点（浏览器拖选语义） */
+        if ((wp & MK_LBUTTON) && g_sel_a.node) {
+            NWNode* tn = text_node_at((float)x, (float)y);
+            if (tn) { sel_extend(tn, text_index_at(tn, (float)x, (float)y)); InvalidateRect(hwnd, NULL, FALSE); }
+        }
         return 0;
     }
     case WM_LBUTTONDOWN: {
@@ -3759,11 +3899,11 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         g_focus = NULL;
-        /* 文本选择起点 */
-        if (hit && hit->text && !hit->is_ta) {
-            sel_clear();
-            g_sel_node = hit;
-            g_sel_start = g_sel_end = text_index_at(hit, (float)x);
+        /* 文本选择：按下即设锚点（浏览器语义；拖动经 WM_MOUSEMOVE 扩展焦点） */
+        {
+            NWNode* tn = text_node_at((float)x, (float)y);
+            if (tn) sel_begin(tn, text_index_at(tn, (float)x, (float)y));
+            else sel_clear();
         }
         /* onclick 冒泡（命中节点沿祖先链找第一个 onclick） */
         for (NWNode* n = hit; n; n = n->parent) {
@@ -3780,9 +3920,10 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_LBUTTONUP: {
         int x = (short)LOWORD(lp), y = (short)HIWORD(lp);
-        if (g_sel_node && g_sel_start >= 0) {
-            NWNode* hit = hit_test((float)x, (float)y);
-            if (hit == g_sel_node) g_sel_end = text_index_at(hit, (float)x);
+        /* 抬起处即焦点（可跨节点；文本区外抬起保持原焦点） */
+        if (g_sel_a.node) {
+            NWNode* tn = text_node_at((float)x, (float)y);
+            if (tn) sel_extend(tn, text_index_at(tn, (float)x, (float)y));
         }
         InvalidateRect(hwnd, NULL, FALSE);
         return 0;
@@ -3799,7 +3940,9 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     }
     case WM_SETCURSOR: {
         if (LOWORD(lp) == HTCLIENT) {
-            SetCursor(LoadCursor(NULL, cursor_hand_zone() ? IDC_HAND : IDC_ARROW));
+            /* 手型（可点）优先于 I 形（可选文本） */
+            SetCursor(LoadCursor(NULL, cursor_hand_zone() ? IDC_HAND
+                                    : (cursor_text_zone() ? IDC_IBEAM : IDC_ARROW)));
             return 0;
         }
         break;

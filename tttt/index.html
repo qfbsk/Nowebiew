@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>大学四年学习路线 · 演示</title>
+<style>
+  html[data-theme="dark"]{
+    --bg:#0d1014; --panel:#151a21; --panel2:#1b2129; --border:#252c36;
+    --text:#e9edf3; --text2:#98a3b3; --text3:#6b7787;
+    --blue:#3b82f6; --purple:#8b5cf6; --green:#10b981; --amber:#f59e0b;
+    --red:#ef4444; --cyan:#06b6d4; --pink:#ec4899; --lime:#84cc16;
+    --shadow:0 10px 40px rgba(0,0,0,.5);
+  }
+  html[data-theme="light"]{
+    --bg:#f4f6f9; --panel:#ffffff; --panel2:#f7f9fb; --border:#e4e8ee;
+    --text:#141a21; --text2:#5b6675; --text3:#8b95a3;
+    --blue:#2563eb; --purple:#7c3aed; --green:#059669; --amber:#d97706;
+    --red:#dc2626; --cyan:#0891b2; --pink:#db2777; --lime:#65a30d;
+    --shadow:0 10px 34px rgba(16,24,40,.10);
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  html,body{height:100%;}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
+    background:var(--bg); color:var(--text); overflow:hidden;
+    transition:background .3s,color .3s;
+  }
+  #progress{position:fixed;top:0;left:0;height:3px;background:linear-gradient(90deg,var(--blue),var(--purple));
+    width:0;z-index:100;transition:width .3s cubic-bezier(.4,0,.2,1);}
+  #deck{position:fixed;inset:0;}
+  .slide{
+    position:absolute;inset:0;display:none;flex-direction:column;justify-content:center;
+    padding:clamp(28px,4.2vh,58px) clamp(32px,5vw,96px);
+    overflow-y:auto;
+  }
+  .slide.active{display:flex;animation:in .38s cubic-bezier(.22,.8,.3,1);}
+  @keyframes in{from{opacity:0;transform:translateY(16px);}to{opacity:1;transform:none;}}
+  .kicker{
+    font-size:clamp(11px,1.15vh,13px);font-weight:700;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--blue);margin-bottom:clamp(8px,1.6vh,16px);
+  }
+  h1{font-size:clamp(26px,5.2vh,50px);line-height:1.24;font-weight:800;letter-spacing:-.5px;}
+  h2{font-size:clamp(21px,3.5vh,34px);line-height:1.3;font-weight:750;letter-spacing:-.3px;margin-bottom:clamp(10px,2vh,22px);}
+  h3{font-size:clamp(14px,1.8vh,18px);font-weight:700;margin-bottom:8px;}
+  p,li{font-size:clamp(13px,1.75vh,17px);line-height:1.72;color:var(--text2);}
+  .lead{color:var(--text);font-weight:600;}
+  b,strong{color:var(--text);font-weight:700;}
+  .hl{color:var(--amber);font-weight:700;}
+  .hl-b{color:var(--blue);font-weight:700;}
+  .hl-g{color:var(--green);font-weight:700;}
+  .hl-r{color:var(--red);font-weight:700;}
+  .cols{display:grid;gap:clamp(12px,2vw,24px);}
+  .c2{grid-template-columns:1fr 1fr;}
+  .c3{grid-template-columns:repeat(3,1fr);}
+  .c4{grid-template-columns:repeat(4,1fr);}
+  @media (max-width:900px){ .c2,.c3,.c4{grid-template-columns:1fr;} }
+  .card{
+    background:var(--panel);border:1px solid var(--border);border-radius:14px;
+    padding:clamp(13px,2vh,22px);box-shadow:var(--shadow);
+  }
+  .card.tb{border-top:3px solid var(--blue);}
+  .card h3{display:flex;align-items:center;gap:8px;}
+  .tag{display:inline-block;font-size:clamp(10px,1.2vh,12px);font-weight:700;padding:2px 9px;border-radius:99px;
+    border:1px solid currentColor;margin-right:6px;vertical-align:middle;}
+  .t-blue{color:var(--blue);} .t-purple{color:var(--purple);} .t-green{color:var(--green);}
+  .t-amber{color:var(--amber);} .t-red{color:var(--red);} .t-cyan{color:var(--cyan);} .t-pink{color:var(--pink);}
+  ul{list-style:none;}
+  ul li{position:relative;padding-left:18px;margin:5px 0;}
+  ul li::before{content:"";position:absolute;left:4px;top:.72em;width:5px;height:5px;border-radius:50%;background:var(--text3);}
+  ul.arrow li::before{content:"▸";background:none;left:0;top:0;color:var(--blue);font-size:12px;width:auto;height:auto;font-weight:700;}
+  ul.check li::before{content:"✓";background:none;left:0;top:0;color:var(--green);font-size:12px;width:auto;height:auto;font-weight:700;}
+  ul.no li::before{content:"✕";background:none;left:0;top:0;color:var(--red);font-size:12px;width:auto;height:auto;font-weight:700;}
+  /* 能力条 */
+  .bar{margin:9px 0;}
+  .bar .top{display:flex;justify-content:space-between;font-size:clamp(11.5px,1.5vh,14px);margin-bottom:5px;color:var(--text2);}
+  .bar .top b{color:var(--text);}
+  .bar .track{height:9px;border-radius:99px;background:var(--panel2);border:1px solid var(--border);overflow:hidden;}
+  .bar .fill{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--blue),var(--purple));}
+  .bar .fill.warn{background:linear-gradient(90deg,var(--amber),var(--red));}
+  .bar .fill.good{background:linear-gradient(90deg,var(--green),var(--cyan));}
+  /* 表格 */
+  table{width:100%;border-collapse:collapse;font-size:clamp(12px,1.6vh,15px);}
+  th,td{text-align:left;padding:clamp(7px,1.25vh,12px) clamp(8px,1.3vw,16px);border-bottom:1px solid var(--border);}
+  th{color:var(--text3);font-weight:700;font-size:clamp(10.5px,1.35vh,13px);letter-spacing:.05em;text-transform:uppercase;}
+  td{color:var(--text2);} td b{color:var(--text);}
+  tr:last-child td{border-bottom:none;}
+  /* 时间轴 */
+  .tl{display:grid;grid-template-columns:repeat(4,1fr);gap:clamp(8px,1.4vw,18px);}
+  @media (max-width:900px){ .tl{grid-template-columns:1fr 1fr;} }
+  .tl .step{position:relative;background:var(--panel);border:1px solid var(--border);border-radius:14px;
+    padding:clamp(12px,1.9vh,20px);border-top:3px solid var(--sc,var(--blue));}
+  .tl .yr{font-size:clamp(16px,2.3vh,23px);font-weight:800;color:var(--sc,var(--blue));}
+  .tl .ph{font-size:clamp(11px,1.4vh,13px);color:var(--text3);margin:2px 0 9px;font-weight:600;letter-spacing:.04em;}
+  .tl li{font-size:clamp(11.5px,1.55vh,14px);line-height:1.6;}
+  /* 封面 */
+  .cover .dot-grid{position:absolute;inset:0;z-index:-1;opacity:.55;
+    background-image:radial-gradient(var(--border) 1px,transparent 1px);background-size:26px 26px;}
+  .badge-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:clamp(12px,2.2vh,24px);}
+  .badge{font-size:clamp(11px,1.4vh,13.5px);padding:5px 13px;border-radius:99px;
+    border:1px solid var(--border);background:var(--panel);color:var(--text2);}
+  .big{font-size:clamp(17px,2.9vh,29px);font-weight:750;line-height:1.5;color:var(--text);}
+  .quote{border-left:3px solid var(--amber);padding:clamp(9px,1.6vh,16px) clamp(13px,1.8vw,22px);
+    background:var(--panel);border-radius:0 12px 12px 0;}
+  /* 控件 */
+  #hud{position:fixed;bottom:16px;right:20px;z-index:100;display:flex;align-items:center;gap:10px;
+    font-size:12px;color:var(--text3);}
+  #hud .k{border:1px solid var(--border);border-radius:5px;padding:1px 6px;color:var(--text2);
+    background:var(--panel);font-size:11px;}
+  #nav{position:fixed;bottom:16px;left:20px;z-index:100;display:flex;gap:7px;}
+  #nav button{
+    width:34px;height:34px;border-radius:9px;border:1px solid var(--border);background:var(--panel);
+    color:var(--text);cursor:pointer;font-size:14px;line-height:1;transition:all .15s;
+  }
+  #nav button:hover{border-color:var(--blue);color:var(--blue);}
+  #themeBtn{position:fixed;top:14px;right:18px;z-index:100;height:32px;padding:0 13px;border-radius:8px;
+    border:1px solid var(--border);background:var(--panel);color:var(--text);cursor:pointer;font-size:12.5px;
+    font-family:inherit;transition:all .15s;}
+  #themeBtn:hover{border-color:var(--blue);color:var(--blue);}
+  #secTag{position:fixed;top:16px;left:20px;z-index:100;font-size:11.5px;color:var(--text3);letter-spacing:.1em;font-weight:600;}
+  .num{font-variant-numeric:tabular-nums;}
+  @media print{
+    html,body{overflow:visible;height:auto;background:#fff;}
+    #progress,#hud,#nav,#themeBtn,#secTag{display:none !important;}
+    #deck{position:static;inset:auto;}
+    .slide{display:flex !important;position:relative;inset:auto;page-break-after:always;min-height:96vh;animation:none;}
+  }
+</style>
+</head>
+<body>
+
+<div id="progress"></div>
+<div id="secTag">CS 四年规划</div>
+<button id="themeBtn">☀ 浅色</button>
+
+<div id="deck">
+
+<!-- 1 封面 -->
+<section class="slide cover active" data-sec="封面">
+  <div class="dot-grid"></div>
+  <div class="kicker">2026 级 · 计算机类 · 定制路线图</div>
+  <h1>大学四年<br>学习路线规划</h1>
+  <p class="lead" style="margin-top:clamp(12px,2.4vh,26px);font-size:clamp(14px,2.1vh,21px);">
+    从「能跑起来」到「知道为什么跑」<br>
+    <span style="color:var(--text3);">2026.9 — 2030.6</span>
+  </p>
+  <div class="badge-row">
+    <span class="badge">前端自学起家</span>
+    <span class="badge">GitHub Pages</span>
+    <span class="badge">PHP + SQL 论坛</span>
+    <span class="badge">Actions 爬虫 + CDN</span>
+    <span class="badge">RSS 自建管道</span>
+    <span class="badge">鸿蒙应用已上架</span>
+    <span class="badge">Tauri / Wails 桌面端</span>
+    <span class="badge">QFFAST 多端同步</span>
+  </div>
+  <div class="quote" style="margin-top:clamp(16px,3vh,34px);">
+    <p class="big">你不是起步晚，你是起步很早、但一直在浅水区反复下水。</p>
+  </div>
+</section>
+
+<!-- 2 一句话结论 -->
+<section class="slide" data-sec="核心结论">
+  <div class="kicker">如果只带走一句话</div>
+  <h1 style="font-size:clamp(24px,5.6vh,54px);line-height:1.32;">
+    停止造新轮子，<br>开始造<span class="hl">轮子的内核</span>。
+  </h1>
+  <p class="lead" style="margin-top:clamp(14px,2.6vh,28px);font-size:clamp(14px,1.95vh,19px);">
+    你不需要「重新开始学计算机」，你需要把已有的工程直觉，<br>接到计算机科学的骨架上。
+  </p>
+  <div class="cols c3" style="margin-top:clamp(16px,3vh,34px);">
+    <div class="card tb"><h3>你的现状</h3><p>工程经验丰富，<b>理论体系空心化</b>。横轴拉满，纵轴≈0。</p></div>
+    <div class="card tb" style="border-top-color:var(--amber);"><h3>真正的问题</h3><p>因为动手太容易，所以一直用<b>「再做一个新项目」</b>来逃避「把一个东西真正学透」。</p></div>
+    <div class="card tb" style="border-top-color:var(--green);"><h3>四年的任务</h3><p>在某一处<b>往下打 100 米</b>，同时不要砍掉你已经很宽的视野。</p></div>
+  </div>
+</section>
+
+<!-- 3 时间线复盘 -->
+<section class="slide" data-sec="画像">
+  <div class="kicker">画像 · 01</div>
+  <h2>你的时间线，其实比你以为的强得多</h2>
+  <table>
+    <tr><th style="width:19%">阶段</th><th style="width:36%">你做的事</th><th style="width:23%">沉淀的能力</th><th>留下的坑</th></tr>
+    <tr><td><b>小学—初中</b></td><td>菜鸟教程自学前端三剑客 · GitHub Pages 托管</td><td>自学能力 · JS 语感</td><td>知识来自教程，未经工程打磨</td></tr>
+    <tr><td><b>高中前</b></td><td>重做个人博客</td><td>完整交付可访问产品</td><td>高中三年中断，技术断层</td></tr>
+    <tr><td><b>高考后暑假</b></td><td>学完 Crash Course CS；体验 Electron / Tauri / Wails</td><td>计算全景图 · 跨端谱系</td><td>全程 Vibecoding，缺手写肌肉记忆</td></tr>
+    <tr><td><b>大学前</b></td><td>免费 PHP 服务器 → 高中论坛；AI 辅助学 PHP + SQL</td><td>第一次碰后端与数据库</td><td>不懂事务 / 索引 / 范式 / 并发</td></tr>
+    <tr><td><b>大学前</b></td><td>Actions 爬足球数据 → jsdmirror CDN → 静态站</td><td><span class="hl-b">被逼出的分布式架构直觉</span></td><td>没有理论支撑，讲不出为什么</td></tr>
+    <tr><td><b>大学前</b></td><td>yt-dlp + OpenList + 蓝奏云 + Actions → 自建 RSS</td><td>系统集成 · 代理反代</td><td>对协议本质理解不足</td></tr>
+    <tr><td><b>大学前</b></td><td>鸿蒙原生开发，<b>已上架 Pictra</b>；另有 3 个未上架</td><td><span class="hl-g">真实应用市场上架经验</span></td><td>商业依赖（API 付费）无解</td></tr>
+    <tr><td><b>大学前</b></td><td>QFNOTE · DesktopPlus（硬链接 + Explorer 重绘）· QFFAST</td><td>性能权衡 · OS 机制实操</td><td>未做发布工程；QFFAST 卡 3 个月</td></tr>
+  </table>
+</section>
+
+<!-- 4 能力雷达 -->
+<section class="slide" data-sec="画像">
+  <div class="kicker">画像 · 02</div>
+  <h2>能力形状：横轴拉满，纵轴几乎为零</h2>
+  <div class="cols c2">
+    <div>
+      <div class="bar"><div class="top"><b>工程交付能力</b><span class="num">95</span></div><div class="track"><div class="fill good" style="width:95%"></div></div></div>
+      <div class="bar"><div class="top"><b>技术广度</b><span class="num">95</span></div><div class="track"><div class="fill good" style="width:95%"></div></div></div>
+      <div class="bar"><div class="top"><b>产品直觉 / 品味</b><span class="num">88</span></div><div class="track"><div class="fill good" style="width:88%"></div></div></div>
+      <div class="bar"><div class="top"><b>互联网 / 网络实操</b><span class="num">80</span></div><div class="track"><div class="fill good" style="width:80%"></div></div></div>
+      <div class="bar"><div class="top"><b>操作系统实操</b><span class="num">50</span></div><div class="track"><div class="fill" style="width:50%"></div></div></div>
+      <div class="bar"><div class="top"><b>协作 / 大规模工程</b><span class="num">30</span></div><div class="track"><div class="fill" style="width:30%"></div></div></div>
+    </div>
+    <div>
+      <div class="bar"><div class="top"><b>数据库理论</b><span class="num">20</span></div><div class="track"><div class="fill warn" style="width:20%"></div></div></div>
+      <div class="bar"><div class="top"><b>计算机科学基础</b><span class="num">18</span></div><div class="track"><div class="fill warn" style="width:18%"></div></div></div>
+      <div class="bar"><div class="top"><b>数学基础</b><span class="num">15</span></div><div class="track"><div class="fill warn" style="width:15%"></div></div></div>
+      <div class="bar"><div class="top"><b>数据结构与算法</b><span class="num">10</span></div><div class="track"><div class="fill warn" style="width:10%"></div></div></div>
+      <div class="bar"><div class="top"><b>系统纵深（任一）</b><span class="num">8</span></div><div class="track"><div class="fill warn" style="width:8%"></div></div></div>
+      <div style="margin-top:clamp(14px,2.4vh,26px);" class="quote">
+        <p><b>这种形状在大一极其罕见、极具价值。</b><br>
+        但如果到大三还是这个形状，就会变成最容易被替代的那种人——<br>
+        因为<span class="hl-r">横轴正是 AI 覆盖最快的区域</span>。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 5 AI 分层 -->
+<section class="slide" data-sec="核心心结">
+  <div class="kicker">核心心结 · 前端被 AI 碾压</div>
+  <h2>AI 没有碾压「你」，AI 碾压的是「实现细节」</h2>
+  <table>
+    <tr><th style="width:40%">能力层级</th><th style="width:20%">被 AI 替代程度</th><th>你的策略</th></tr>
+    <tr><td>样板代码 / CRUD / 切图 / 调 API / 写配置</td><td><span class="hl-r">90%+ 已被替代</span></td><td><b>放弃在这里竞争</b>——这不是你的错，也不是你的方向</td></tr>
+    <tr><td>常规前端工程（组件库 / 状态管理 / 构建优化）</td><td><span class="hl">约 60%</span></td><td>作为技能保留，不作核心竞争力</td></tr>
+    <tr><td>复杂前端（渲染引擎 / DSL / 富文本内核）</td><td>约 35%</td><td>可行，但不是最优解</td></tr>
+    <tr><td><b>端到端系统设计</b>（前端 + 网络 + 存储 + 分发）</td><td><span class="hl-g">约 20%</span></td><td><b>你的天然优势区，也是 AI 最弱的地方</b></td></tr>
+    <tr><td><b>领域纵深</b>（数据库内核 / OS / 编译器 / 分布式）</td><td><span class="hl-g">&lt; 10%</span></td><td><b>护城河最深，必须现在开始</b></td></tr>
+    <tr><td><b>定义问题 · 判断价值 · 做取舍</b></td><td><span class="hl-g">≈ 0%</span></td><td>你天生就在做这件事</td></tr>
+  </table>
+  <div class="quote" style="margin-top:clamp(14px,2.6vh,28px);">
+    <p class="big">AI 让「会写代码」贬值了，但让「知道该写什么、以及为什么」升值了。<br>
+    <span style="color:var(--text3);font-size:.72em;">你要么往上走（判断力），要么往下走（系统纵深）——绝对不要在中间那层跟 AI 抢活。</span></p>
+  </div>
+</section>
+
+<!-- 6 隐藏优势 -->
+<section class="slide" data-sec="画像">
+  <div class="kicker">画像 · 03 · 别人不会告诉你的</div>
+  <h2>你已经拥有的五个隐藏优势</h2>
+  <div class="cols c2">
+    <div class="card tb"><h3><span class="tag t-blue">01</span>被约束逼出的架构直觉</h3><p>免费服务器只能跑 PHP → 用 GitHub Actions 当爬虫调度器 + jsdmirror 当 CDN。<b>这是架构决策，不是编码。</b>很多名校学生缺的正是这个。</p></div>
+    <div class="card tb" style="border-top-color:var(--green);"><h3><span class="tag t-green">02</span>完整的交付闭环</h3><p>鸿蒙应用商店已上架 Pictra = 你走完了从开发到审核到发布的<b>整条链路</b>。这在应届生里是稀有项。</p></div>
+    <div class="card tb" style="border-top-color:var(--amber);"><h3><span class="tag t-amber">03</span>开源价值观 + 产品品味</h3><p>「社区驱动、插件化、可定制、可移植、免费无广告」——这不是幼稚，是<b>极强的产品定位能力</b>。</p></div>
+    <div class="card tb" style="border-top-color:var(--purple);"><h3><span class="tag t-purple">04</span>你的 AI 用法是对的</h3><p>先思维风暴 → 互相质疑 → 拍板 → 再实现。绝大多数人是「让 AI 出稿 → 复制粘贴 → 不懂」。<b>你已经赢在方法论上。</b></p></div>
+  </div>
+  <div class="card tb" style="border-top-color:var(--cyan);margin-top:clamp(10px,1.8vh,20px);">
+    <h3><span class="tag t-cyan">05</span>QFFAST 卡住的那 3 个月，不是失败</h3>
+    <p>它是你未来两年要解决的核心问题的<b>预告片</b>。多端同步、P2P、NAT 穿透、一致性——这正是「系统 & 基础设施」这条路的核心命题。<b>你在无意识中，已经替自己选好了方向。</b></p>
+  </div>
+</section>
+
+<!-- 7 路线矩阵 -->
+<section class="slide" data-sec="路线选择">
+  <div class="kicker">路线选择 · 01</div>
+  <h2>五条候选路线，一张矩阵看清</h2>
+  <table>
+    <tr><th style="width:34%">路线</th><th style="width:17%">匹配你的积累</th><th style="width:13%">护城河</th><th style="width:15%">就业 / 深造</th><th style="width:11%">陡度</th><th>综合</th></tr>
+    <tr><td><b>A. 后端 / 基础架构 / 分布式</b></td><td>★★★★★</td><td>★★★★★</td><td>★★★★★</td><td>★★★★</td><td><b class="hl-g">23 ★ 主推</b></td></tr>
+    <tr><td>B. 跨端客户端（Tauri / Wails / 鸿蒙）</td><td>★★★★★</td><td>★★★</td><td>★★★★</td><td>★★★</td><td><b>17</b></td></tr>
+    <tr><td>C. 系统底层（OS / 编译器 / 嵌入式）</td><td>★★★</td><td>★★★★★</td><td>★★★★</td><td>★★★★★</td><td><b>17</b></td></tr>
+    <tr><td>D. AI 工程化（RAG / Agent / AI Infra）</td><td>★★★★</td><td>★★★★</td><td>★★★★★</td><td>★★★★</td><td><b>17</b></td></tr>
+    <tr><td>E. 纯前端 / Web 应用</td><td>★★★★★</td><td>★★</td><td>★★★</td><td>★★</td><td><b class="hl-r">12 ⚠ 不作主线</b></td></tr>
+  </table>
+  <div class="quote" style="margin-top:clamp(14px,2.6vh,28px);">
+    <p><b>结论：</b>主线走 <span class="hl-b">A（系统 &amp; 基础设施）</span>，用 <span class="hl">D（AI 工程化）</span> 做增益、<span class="hl">B（跨端）</span> 做差异化，把 <span class="hl-r">E（纯前端）</span> 降级为「工具」而不是「专业」。</p>
+  </div>
+</section>
+
+<!-- 8 一主两翼 -->
+<section class="slide" data-sec="路线选择">
+  <div class="kicker">路线选择 · 02</div>
+  <h2>推荐配置：一主两翼</h2>
+  <div class="card tb" style="border-top-color:var(--purple);text-align:center;padding:clamp(18px,3.4vh,34px);">
+    <div class="kicker" style="margin-bottom:6px;">主线</div>
+    <div class="big" style="color:var(--purple);">系统 &amp; 基础设施</div>
+    <p style="margin-top:8px;">后端 → 分布式 → 存储 / 网络 / 内核</p>
+  </div>
+  <div class="cols c3" style="margin-top:clamp(10px,1.8vh,20px);">
+    <div class="card tb" style="border-top-color:var(--amber);"><h3>增益翼 · AI 工程化</h3><p>RAG / Agent / 向量库 / 推理引擎 / 端侧部署<br><span style="color:var(--text3);">时代红利最大，且 AI Infra 本身就是基础设施</span></p></div>
+    <div class="card tb" style="border-top-color:var(--cyan);"><h3>差异翼 · 跨端客户端</h3><p>Tauri / Wails / 鸿蒙 ArkTS<br><span style="color:var(--text3);">是「输出端」不是「学习主线」，用于简历差异化</span></p></div>
+    <div class="card tb" style="border-top-color:var(--pink);"><h3>兴趣翼 · 开源 &amp; 协议</h3><p>RSS / P2P / 自托管 / 协议设计<br><span style="color:var(--text3);">你的长期动力来源，也是最好的选题库</span></p></div>
+  </div>
+  <div class="card" style="margin-top:clamp(10px,1.8vh,20px);">
+    <h3>为什么主线必须是它？</h3>
+    <ul class="arrow">
+      <li><b>你的全部经历本就指向它。</b>FTP / WebDAV / OpenList / P2P / WebSocket 屏幕共享 / 网盘挂载 / CDN 镜像 / Actions 调度——这不是前端，这是<b>分布式系统的婴儿版</b>。</li>
+      <li><b>你对「轮子」有执念。</b>那就去造真正的轮子：存储引擎、同步引擎、协议实现、调度器。</li>
+      <li><b>你讨厌推荐算法、热爱 RSS。</b>这说明你对「去中心化、自主可控、协议开放」有原生偏好——这是兴趣与职业的最大公约数。</li>
+    </ul>
+  </div>
+</section>
+
+<!-- 9 ACM 1 -->
+<section class="slide" data-sec="ACM">
+  <div class="kicker">ACM · 01 · 诚实回答</div>
+  <h2>起步晚吗？不晚。但门槛要说清楚</h2>
+  <div class="cols c2">
+    <div class="card tb" style="border-top-color:var(--green);">
+      <h3><span class="tag t-green">不晚</span>为什么</h3>
+      <ul class="check">
+        <li>绝大多数 ACM 选手是<b>大一零基础起步</b>的</li>
+        <li>你现在属于「<b>最早的一批</b>」，不是「晚的一批」</li>
+        <li>真正晚的，是大二下才第一次听说算法竞赛的人</li>
+        <li>你缺的不是时间，是<b>目标感和节奏</b></li>
+      </ul>
+    </div>
+    <div class="card tb" style="border-top-color:var(--red);">
+      <h3><span class="tag t-red">风险</span>对你个人的提示</h3>
+      <ul class="no">
+        <li>ACM 是<b>极度的单点纵深训练</b>，而你是<b>广度探索型人格</b></li>
+        <li>两者会互相挤压：ACM 要你三个月只刷图论，你可能第三周就去写新轮子了</li>
+        <li>强行压制探索欲，最可能的结果是<b>两头都没做好</b>，还失去了对编程的兴趣</li>
+      </ul>
+    </div>
+  </div>
+  <table style="margin-top:clamp(10px,1.8vh,20px);">
+    <tr><th style="width:26%">目标</th><th style="width:30%">门槛</th><th>说明</th></tr>
+    <tr><td><b>区域赛铜牌</b></td><td>400–700 题 · 1.5 年 × 10h/周</td><td>需要稳定的三人队</td></tr>
+    <tr><td><b>区域赛银牌</b></td><td>800–1500 题 · 2 年 × 15–20h/周</td><td>还需要一点天赋</td></tr>
+    <tr><td><b>金牌 / World Finals</b></td><td>需要从初中开始</td><td><span class="hl-r">这个目标请直接放弃，对你性价比极低</span></td></tr>
+  </table>
+</section>
+
+<!-- 10 ACM 2 -->
+<section class="slide" data-sec="ACM">
+  <div class="kicker">ACM · 02 · 建议方案</div>
+  <h2>「3 个月试水」+ 两个不冲突的目标</h2>
+  <div class="cols c2">
+    <div class="card tb" style="border-top-color:var(--green);">
+      <h3><span class="tag t-green">目标 A</span>保底 · 人人受益</h3>
+      <p>大一结束前刷够 <b class="hl-g">300 题</b>，能秒杀 LeetCode Medium。<br>
+      <span style="color:var(--text3);">无论走不走 ACM，大厂面试 / 保研机试都用得上，极值。</span></p>
+    </div>
+    <div class="card tb" style="border-top-color:var(--amber);">
+      <h3><span class="tag t-amber">目标 B</span>进阶 · 有条件才做</h3>
+      <p>如果 3 个月后刷题让你<b>上瘾</b>（而非痛苦），且能在大一找到 <b>2 个靠谱队友</b> → 正式进队，冲 CCPC / ICPC 区域赛。</p>
+    </div>
+  </div>
+  <div class="quote" style="margin-top:clamp(12px,2.2vh,24px);">
+    <p class="big">2027 年 1 月的复盘判断点：</p>
+    <p style="margin-top:6px;">解出一道难题的快乐 <b>&gt;</b> 写一个新项目的快乐 → <span class="hl-g">去 ACM</span>。<br>
+    刷题像是「为了某个目的必须受的刑」 → <span class="hl-b">走工程路线，算法保持 300–700 题手感即可</span>。</p>
+    <p style="margin-top:8px;color:var(--text3);">两种选择都不丢人。第二种甚至可能更适合你。</p>
+  </div>
+  <div class="cols c2" style="margin-top:clamp(10px,1.8vh,20px);">
+    <div class="card"><h3>低门槛正反馈（强烈建议）</h3>
+      <ul class="arrow">
+        <li><b>蓝桥杯</b>：个人赛，每年 3–4 月，省一不难</li>
+        <li><b>CCPC / ICPC 网络赛</b>：线上免费，感受真实赛场</li>
+        <li><b>计算机设计大赛 / 互联网+</b>：你的项目史天然有优势</li>
+      </ul></div>
+    <div class="card"><h3>平台与刷题方法</h3>
+      <ul class="arrow">
+        <li>洛谷（中文·新手村）→ Codeforces Div3/Div2 → AtCoder ABC</li>
+        <li><b>拒绝裸刷</b>：按 模拟/数据结构/图论/DP/数学/字符串 专题突破</li>
+        <li>《算法竞赛进阶指南》+ 洛谷题单 + CF Edu Round</li>
+      </ul></div>
+  </div>
+</section>
+
+<!-- 11 四年总览 -->
+<section class="slide" data-sec="四年路线">
+  <div class="kicker">四年路线 · 总览</div>
+  <h2>一张图看完四年</h2>
+  <div class="tl">
+    <div class="step" style="--sc:var(--green);">
+      <div class="yr">大一</div><div class="ph">打地基 · 戒新壳</div>
+      <ul>
+        <li>翁恺 C 语言看完</li>
+        <li>Linux 成为主力环境</li>
+        <li>CSAPP 前 6 章 + Lab</li>
+        <li>算法 300 题</li>
+        <li>寒假：手写 HTTP 服务器</li>
+        <li><b>戒律：不开新项目</b></li>
+      </ul>
+    </div>
+    <div class="step" style="--sc:var(--cyan);">
+      <div class="yr">大二</div><div class="ph">系统内功 · 方向收敛</div>
+      <ul>
+        <li>OS：MIT 6.S081 / xv6</li>
+        <li>网络：CS144 手写 TCP</li>
+        <li>数据库：手写 LSM-Tree</li>
+        <li>分布式：MIT 6.824</li>
+        <li>开源之夏 / GSoC</li>
+        <li>投暑期实习</li>
+      </ul>
+    </div>
+    <div class="step" style="--sc:var(--purple);">
+      <div class="yr">大三</div><div class="ph">实习 · 纵深 · 产出</div>
+      <ul>
+        <li>分流：保研/考研/就业/出国</li>
+        <li>实习（最后窗口）</li>
+        <li>方向纵深：只选一个</li>
+        <li>产出三选二：实习 / 开源 star 1k+ / 论文</li>
+        <li>技术博客 IP 化</li>
+      </ul>
+    </div>
+    <div class="step" style="--sc:var(--amber);">
+      <div class="yr">大四</div><div class="ph">收获 · 收尾</div>
+      <ul>
+        <li>秋招 / 保研 / 考研 / 申请</li>
+        <li>毕设复用主线方向</li>
+        <li>毕设收尾</li>
+        <li>入职准备 / 读研准备</li>
+      </ul>
+    </div>
+  </div>
+  <div class="quote" style="margin-top:clamp(12px,2.2vh,24px);">
+    <p><b>主线任务贯穿始终：</b>QFFAST 卡住的那个问题——<span class="hl-b">多端去中心化同步</span>。大一求能跑，大二搞懂并发与网络，大三搞懂一致性与 NAT 穿透，大四做成真正能用的开源项目。</p>
+  </div>
+</section>
+
+<!-- 12 大一上 -->
+<section class="slide" data-sec="大一">
+  <div class="kicker">大一 · 上学期（现在 → 2027.1）</div>
+  <h2>本学期只做三件事，但要做透</h2>
+  <div class="cols c3" style="margin-bottom:clamp(10px,1.8vh,20px);">
+    <div class="card tb"><h3>① 补齐 CS 骨架第一层</h3><p>C 语言 + 数学 + 数据结构</p></div>
+    <div class="card tb" style="border-top-color:var(--green);"><h3>② 建立算法手感</h3><p>洛谷累计 150 题，必须写题解</p></div>
+    <div class="card tb" style="border-top-color:var(--cyan);"><h3>③ Linux 成为主力环境</h3><p>双系统 / 虚拟机 / WSL2 三选一</p></div>
+  </div>
+  <div class="cols c2">
+    <div class="card">
+      <h3>关键动作</h3>
+      <ul class="arrow">
+        <li><b>看完翁恺 C 语言 → 手写 3 个东西：</b>动态数组/链表/哈希表 → 小型 JSON 解析器 → 计算器（词法 + 语法）。<b>关掉 IDE 补全，纯手写。</b></li>
+        <li><b>Linux 迁主力：</b>命令行完成日常所有事 · shell 脚本 · tmux + vim</li>
+        <li><b>Git 进阶：</b>rebase / bisect / cherry-pick / submodule；从文档 typo 开始提第一个 PR</li>
+      </ul>
+    </div>
+    <div class="card tb" style="border-top-color:var(--red);">
+      <h3>⚠️ 本学期最重要的一条纪律</h3>
+      <p class="big" style="font-size:clamp(15px,2.1vh,20px);margin:6px 0 10px;">不允许开始任何新项目</p>
+      <p>所有项目冲动写进 <b>idea.md</b>。</p>
+      <p style="margin-top:8px;">你的历史模式是：<b>每遇到一个不会的东西，就换一个新项目绕开它。</b>QFFAST 卡住了，你不会 P2P，然后（很可能）去开了别的坑。</p>
+      <p style="margin-top:8px;color:var(--amber);font-weight:700;">这个习惯不改，四年后你还是今天的样子。</p>
+    </div>
+  </div>
+</section>
+
+<!-- 13 大一 寒假+下 -->
+<section class="slide" data-sec="大一">
+  <div class="kicker">大一 · 寒假 + 下学期</div>
+  <h2>寒假一个项目，下学期三根新柱子</h2>
+  <div class="card tb" style="border-top-color:var(--purple);">
+    <h3>寒假：手写一个 HTTP 服务器（不用任何框架）</h3>
+    <div class="cols c4" style="margin-top:8px;">
+      <div><p><b>W1</b> socket → bind → listen → accept → 固定响应</p></div>
+      <div><p><b>W2</b> 解析请求行 / 头 / body，实现 GET、HEAD</p></div>
+      <div><p><b>W3</b> 路由 · 静态文件 · MIME · 404/500</p></div>
+      <div><p><b>W4</b> 并发（多线程 / epoll / goroutine）· 压测 · Keep-Alive</p></div>
+    </div>
+    <p style="margin-top:10px;"><span class="hl">★ 这一个项目的价值，顶你过去十个「套壳」项目。</span>做完你会明白：Nginx 到底在干嘛、为什么 QFFAST 会卡。</p>
+  </div>
+  <div class="cols c2" style="margin-top:clamp(10px,1.8vh,20px);">
+    <div class="card tb"><h3>下学期 · 课程</h3>
+      <ul class="arrow">
+        <li>数据结构（跟课 + <b>自己实现全部数据结构</b>）</li>
+        <li>计算机组成原理 · 概率论与数理统计</li>
+      </ul></div>
+    <div class="card tb" style="border-top-color:var(--amber);"><h3>下学期 · 关键动作</h3>
+      <ul class="arrow">
+        <li><b>CSAPP 前 6 章 + Lab</b>（Data / Bomb / Malloc）<span class="hl">★ 这本书是你人生的分水岭</span></li>
+        <li><b>算法 300 题</b>，CF rating 1200–1400</li>
+        <li><b>写第一个真·后端</b>：Go/Rust + 数据库 + Docker + Nginx + systemd，手写路由与中间件</li>
+        <li>把 QFNOTE / DesktopPlus 补到<b>发布级</b>（自动更新 + 崩溃上报 + CI/CD）</li>
+        <li><b>QFFAST 暂时冻结</b>——不是放弃，是排期</li>
+      </ul></div>
+  </div>
+</section>
+
+<!-- 14 大二 -->
+<section class="slide" data-sec="大二">
+  <div class="kicker">大二 · 2027.9 — 2028.6</div>
+  <h2>系统内功：立起三根柱子</h2>
+  <div class="cols c3">
+    <div class="card tb"><h3><span class="tag t-blue">柱一</span>操作系统</h3>
+      <p>MIT 6.S081 (xv6) 或 哈工大李治军 OS</p>
+      <p style="margin-top:6px;color:var(--text3);">手写：系统调用 · 页表 · 进程调度器 · 文件系统 · Shell<br><b>这是你从「应用程序员」变成「程序员」的关键。</b></p></div>
+    <div class="card tb" style="border-top-color:var(--cyan);"><h3><span class="tag t-cyan">柱二</span>计算机网络</h3>
+      <p>《自顶向下方法》+ Stanford CS144</p>
+      <p style="margin-top:6px;color:var(--text3);">手写：一个完整可用的 <b>TCP 实现</b><br>你已经玩过 P2P / WebSocket / 反代，现在把理论补上。</p></div>
+    <div class="card tb" style="border-top-color:var(--green);"><h3><span class="tag t-green">柱三</span>数据库</h3>
+      <p>《数据库系统概念》+ Mini-LSM / bitcask</p>
+      <p style="margin-top:6px;color:var(--text3);">手写：<b>一个 LSM-Tree 或 B+Tree 存储引擎</b><br>你会瞬间理解 QFFAST 里的「同步 / 一致性」到底是什么。</p></div>
+  </div>
+  <div class="quote" style="margin-top:clamp(12px,2.2vh,24px);">
+    <p><b>为什么数据库这根柱子对你格外重要？</b>因为 QFFAST、网盘挂载、多端同步，<b>本质都是存储一致性问题</b>。学完存储引擎，你会突然明白：为什么会冲突、为什么必须有 WAL、为什么「最后写入者获胜」是一场灾难。<span class="hl">这才是真正解决你卡了 3 个月那个问题。</span></p>
+  </div>
+  <div class="cols c2" style="margin-top:clamp(10px,1.8vh,20px);">
+    <div class="card"><h3>上学期 · 其余主线</h3>
+      <ul class="arrow">
+        <li>语言纵深：<b>Rust 或 C++ 二选一吃透</b>（你用过 ≠ 写过）</li>
+        <li>算法 500 题 · CF 1400–1600</li>
+        <li>竞赛：蓝桥杯 · CCPC 网络赛 · 计算机设计大赛</li>
+      </ul></div>
+    <div class="card"><h3>下学期 · 三件事</h3>
+      <ul class="arrow">
+        <li><b>分布式 MIT 6.824</b>：Raft → KV → ShardKV <span class="hl">→ QFFAST 的正式理论化</span></li>
+        <li><b>编译原理</b>：《Crafting Interpreters》，实现能编译到字节码的玩具语言</li>
+        <li><b>开源之夏 / GSoC</b>：简历上性价比最高的一行</li>
+        <li>3–5 月投暑期实习（<b>有实习比没实习强 10 倍</b>）</li>
+      </ul></div>
+  </div>
+</section>
+
+<!-- 15 大三 -->
+<section class="slide" data-sec="大三">
+  <div class="kicker">大三 · 2028.9 — 2029.6</div>
+  <h2>实习 · 纵深 · 产出</h2>
+  <div class="cols c3">
+    <div class="card tb"><h3>① 分流决策</h3><p>必须在大三上结束前做出：<b>保研 / 考研 / 就业 / 出国</b>。</p></div>
+    <div class="card tb" style="border-top-color:var(--amber);"><h3>② 实习</h3><p>暑期实习 / 日常实习——<b>最后窗口</b>。目标：后端 / 基础架构 / 客户端 / 鸿蒙生态。</p></div>
+    <div class="card tb" style="border-top-color:var(--green);"><h3>③ 产出三选二</h3>
+      <ul class="arrow">
+        <li>大厂实习 / 实习转正</li>
+        <li>开源项目 star 破千，或知名项目长期 contributor</li>
+        <li>论文 / 专利 / 技术博客系列</li>
+      </ul></div>
+  </div>
+  <div class="card tb" style="border-top-color:var(--purple);margin-top:clamp(10px,1.8vh,20px);">
+    <h3>★ 方向纵深：只选一个，深到能看到底</h3>
+    <div class="cols c3" style="margin-top:8px;">
+      <ul class="arrow"><li>存储引擎 / 数据库内核 <span class="hl-g">（与项目史最契合）</span></li><li>分布式共识 / 云原生基础设施</li></ul>
+      <ul class="arrow"><li>编译器 / 程序分析</li><li>操作系统 / 内核 / eBPF</li></ul>
+      <ul class="arrow"><li>AI Infra：推理引擎 / 向量库 / GPU 调度</li><li>网络协议 / 高性能网关</li></ul>
+    </div>
+  </div>
+  <div class="quote" style="margin-top:clamp(12px,2.2vh,24px);">
+    <p><b>个人 IP 建设（强烈建议）：</b>把四年的积累写成技术博客——<span class="hl">你的 RSS 情结终于能用在正道上了</span>。在 AI 时代，「能讲清楚复杂系统」的人极其稀缺，这是你和「量产型 CS 学生」最大的区别。</p>
+  </div>
+</section>
+
+<!-- 16 大四 -->
+<section class="slide" data-sec="大四">
+  <div class="kicker">大四 · 2029.9 — 2030.6</div>
+  <h2>收获与收尾</h2>
+  <div class="cols c2">
+    <div class="card tb"><h3>上学期</h3>
+      <ul class="arrow">
+        <li>秋招 / 保研复试 / 考研冲刺 / 申请</li>
+        <li>毕设开题——<b>选题尽量复用你的主线方向</b></li>
+      </ul></div>
+    <div class="card tb" style="border-top-color:var(--green);"><h3>下学期</h3>
+      <ul class="arrow">
+        <li>毕设收尾</li>
+        <li>入职准备 / 读研准备</li>
+        <li>把四年成果整理成个人主页与作品集</li>
+      </ul></div>
+  </div>
+  <div class="card tb" style="border-top-color:var(--purple);margin-top:clamp(12px,2.2vh,24px);">
+    <h3>毕设选题示例（一句话装进你的整个技术史）</h3>
+    <p class="big" style="margin-top:8px;">《面向多端的去中心化文件同步协议<br>设计与实现》</p>
+    <p style="margin-top:10px;color:var(--text3);">QFFAST ＋ 分布式共识 ＋ 存储引擎 ＋ 跨端客户端 ＋ 开源价值观 —— 全部收敛到一个题目里。</p>
+  </div>
+</section>
+
+<!-- 17 技术栈 -->
+<section class="slide" data-sec="技术栈">
+  <div class="kicker">技术栈清单</div>
+  <h2>按优先级分四档，不贪多</h2>
+  <div class="cols c2">
+    <div class="card tb" style="border-top-color:var(--red);">
+      <h3><span class="tag t-red">P0</span>必修核心 —— 不学就没法谈 CS</h3>
+      <ul class="arrow">
+        <li><b>语言：</b>C（指针 / 内存 / 编译链接）· Go 或 Rust（择一作主力）· Python</li>
+        <li><b>数学：</b>高数 · 线代 · 概率论 · 离散数学</li>
+        <li><b>基础：</b>数据结构 · 算法设计与分析 · 计算机组成原理</li>
+        <li><b>系统：</b>操作系统 · 计算机网络 · 数据库系统</li>
+        <li><b>工具：</b>Linux · Git · Shell · Docker · Make / CMake</li>
+      </ul>
+    </div>
+    <div class="card tb" style="border-top-color:var(--amber);">
+      <h3><span class="tag t-amber">P1</span>优势延伸 —— 差异化竞争力</h3>
+      <ul class="arrow">
+        <li><b>分布式：</b>Raft · 一致性 · 幂等 · 最终一致</li>
+        <li><b>存储：</b>LSM / B+Tree · WAL · 索引 · 事务隔离级别</li>
+        <li><b>网络编程：</b>epoll / io_uring · 零拷贝 · 反代 · NAT 穿透</li>
+        <li><b>跨端：</b>Tauri · Wails · 鸿蒙 ArkTS</li>
+        <li><b>工程化：</b>CI/CD · 可观测性 · 性能剖析（perf / flamegraph）</li>
+        <li><b>协议：</b>HTTP/2 · HTTP/3 · WebSocket · WebDAV · WebRTC</li>
+      </ul>
+    </div>
+    <div class="card tb" style="border-top-color:var(--cyan);">
+      <h3><span class="tag t-cyan">P1</span>AI 增益 —— 时代红利</h3>
+      <ul class="arrow">
+        <li><b>基础：</b>线代 + 概率 + 优化 + 深度学习导论</li>
+        <li><b>应用：</b>RAG（索引 / 切分 / 检索 / 重排）· Agent（工具 / 记忆 / 规划）</li>
+        <li><b>工程化：</b>向量库 · llama.cpp / vLLM · 量化与端侧部署</li>
+        <li><b>关键认知：</b>理解 AI 的能力边界与失效模式</li>
+      </ul>
+    </div>
+    <div class="card tb" style="border-top-color:var(--lime);">
+      <h3><span class="tag" style="color:var(--lime);">P2</span>有闲再碰 —— 不占主线时间</h3>
+      <ul class="arrow">
+        <li>视频剪辑 · TTS · 安卓原生 · 爬虫工程 · 自建节点 · ROOT / 刷机</li>
+        <li class="hl-r">⚠ 逆向工程：技术能力的边界 ≠ 法律与道德的边界</li>
+        <li>建议只用于合规场景：CTF / 协议学习 / 安全研究 / 自家系统测试</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 18 八条铁律 -->
+<section class="slide" data-sec="铁律">
+  <div class="kicker">八条铁律</div>
+  <h2>写给「啥都沾点」的你</h2>
+  <div class="cols c2">
+    <div class="card tb"><h3>① 停止造新轮子，开始造轮子的内核</h3><p>判断标准：新项目里超过 <b>70%</b> 的代码是「调别人的库」，就不要做。</p></div>
+    <div class="card tb" style="border-top-color:var(--green);"><h3>② 每学期一个「深」项目，取代三个「壳」项目</h3><p><b>深 = 你亲手写了至少一个核心算法或数据结构。</b><br>好例子：HTTP 服务器 / LSM-Tree / TCP 栈 / Raft / 解释器。坏例子：又套了一个 UI 框架。</p></div>
+    <div class="card tb" style="border-top-color:var(--amber);"><h3>③ 算法刷题常态化，不是突击</h3><p>每周 ≥3 题，雷打不动；大一结束 300 题是底线。目的是让「逻辑推演」成为第二本能。</p></div>
+    <div class="card tb" style="border-top-color:var(--cyan);"><h3>④ Linux 必须是主力开发环境</h3><p>不会命令行 = 不会调试 = 不会部署 = 永远停在「能跑就行」。</p></div>
+    <div class="card tb" style="border-top-color:var(--pink);"><h3>⑤ 数学绝对不能放弃</h3><p>这是你与「培训班转行者」<b>最本质的分界线</b>。现在逃掉的每一节，都是三年后读论文时的墙。</p></div>
+    <div class="card tb" style="border-top-color:var(--purple);"><h3>⑥ 英语要硬着头皮上</h3><p>原版文档 · RFC · 论文 · conference talk。技术英语的词汇量其实很小。</p></div>
+    <div class="card tb" style="border-top-color:var(--lime);"><h3>⑦ 保留开源价值观与产品品味</h3><p>「社区驱动 / 插件化 / 可定制 / 可移植 / 免费无广告」不是幼稚，是稀有判断力。<b>人人都能生成代码的时代，「知道该做什么」贵 100 倍。</b></p></div>
+    <div class="card tb" style="border-top-color:var(--blue);"><h3>⑧ 深度优先于广度，但广度是你的护城河</h3><p>正确形状：<b>一个深 100 米的方向 + 一圈宽 20 米的视野</b>。现在你是深度 1 米、宽度 20 米。不要砍宽度，要在某一处往下打 100 米。</p></div>
+  </div>
+</section>
+
+<!-- 19 AI 用法 -->
+<section class="slide" data-sec="AI 用法">
+  <div class="kicker">AI 正确用法 · 你已做对 80%</div>
+  <h2>把 80% 的直觉，变成 100% 的方法</h2>
+  <div class="cols c2">
+    <div class="card tb" style="border-top-color:var(--green);">
+      <h3>✅ 已做对 —— 继续保持</h3>
+      <ul class="check">
+        <li>先思维风暴 → 互相质疑 → 最后拍板</li>
+        <li>把它当「<b>对手</b>」和「<b>镜子</b>」，不是「答案机」</li>
+        <li>用自然语言设计算法（但语法该学还是要学）</li>
+        <li>这个习惯会让你在 AI 时代过得比 90% 的人都好</li>
+      </ul>
+    </div>
+    <div class="card tb" style="border-top-color:var(--red);">
+      <h3>❌ 需要刻意训练</h3>
+      <ul class="no">
+        <li>每周至少一天「<b>AI 静默日</b>」：只能查官方文档</li>
+        <li>每个项目选一个核心模块：<b>先自己写，再对比 AI 版本</b></li>
+        <li>让 AI 当苏格拉底式提问者：只提问、只指漏洞、不给代码</li>
+        <li>补齐主语言的语法 / 类型系统 / 内存模型</li>
+        <li>「不知语法但能设计算法」短期可行，长期会被调试与性能优化卡死</li>
+      </ul>
+    </div>
+  </div>
+  <div class="quote" style="margin-top:clamp(14px,2.6vh,28px);">
+    <p class="big">AI 让「实现」变得廉价，于是「判断」变得昂贵。</p>
+    <p style="margin-top:10px;">而判断力的<span class="hl-b">下限由理论基础决定</span>，<span class="hl-g">上限由项目经历决定</span>。<br>
+    你现在上限很高（项目多）、下限很低（理论空白）——所以未来两年，<b>重点一定是抬高下限</b>。</p>
+  </div>
+</section>
+
+<!-- 20 90天 -->
+<section class="slide" data-sec="90 天">
+  <div class="kicker">90 天行动清单</div>
+  <h2>今天起，按周执行</h2>
+  <div class="cols c4">
+    <div class="card tb" style="border-top-color:var(--blue);">
+      <h3>第 1–4 周</h3><p style="color:var(--text3);font-size:.85em;margin-bottom:6px;">9.20 — 10.18</p>
+      <ul class="check">
+        <li>看完翁恺 C 语言剩余（每天 2h）</li>
+        <li>装好 Linux 并迁移日常开发</li>
+        <li>洛谷 + CF 注册，新手村 20 题</li>
+        <li>建立 idea.md，项目冲动全写进去</li>
+        <li>建立技术笔记体系</li>
+        <li>翻开 CSAPP 第 1 章</li>
+      </ul>
+    </div>
+    <div class="card tb" style="border-top-color:var(--cyan);">
+      <h3>第 5–8 周</h3><p style="color:var(--text3);font-size:.85em;margin-bottom:6px;">10.19 — 11.15</p>
+      <ul class="check">
+        <li>手写动态数组 / 链表 / 哈希表</li>
+        <li>手写小型 JSON 解析器</li>
+        <li>洛谷累计 60 题</li>
+        <li>Git 进阶 + 第一个开源 PR</li>
+        <li>CSAPP 1–2 章 + 开始 Data Lab</li>
+        <li>高数 / 线代一节不缺</li>
+      </ul>
+    </div>
+    <div class="card tb" style="border-top-color:var(--purple);">
+      <h3>第 9–12 周</h3><p style="color:var(--text3);font-size:.85em;margin-bottom:6px;">11.16 — 12.13</p>
+      <ul class="check">
+        <li>手写计算器（词法 + 语法）</li>
+        <li>洛谷累计 150 题</li>
+        <li>CSAPP 第 3 章 + Data Lab 通关</li>
+        <li>CF Div3 能做对 2 题</li>
+        <li>规划寒假 HTTP 服务器方案</li>
+        <li><b>复盘：忍住了几次开新项目？</b></li>
+      </ul>
+    </div>
+    <div class="card tb" style="border-top-color:var(--amber);">
+      <h3>寒假冲刺</h3><p style="color:var(--text3);font-size:.85em;margin-bottom:6px;">12.14 — 2027.2</p>
+      <ul class="check">
+        <li>完成手写 HTTP 服务器</li>
+        <li>洛谷累计 200+ 题</li>
+        <li>CSAPP 第 4–6 章</li>
+        <li>（处理器体系结构 / 存储器层次 / 链接）</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<!-- 21 误区 -->
+<section class="slide" data-sec="误区纠正">
+  <div class="kicker">误区纠正速查</div>
+  <h2>把这八句话，换一种说法</h2>
+  <table>
+    <tr><th style="width:38%">你的表述</th><th>正确认知</th></tr>
+    <tr><td class="hl-r">「我完全 0 基础」</td><td>你是<b>工程经验丰富、理论体系空心化</b>。不需要从 Hello World 开始，需要从 CSAPP 开始。</td></tr>
+    <tr><td class="hl-r">「起步太晚了」</td><td>大一军训期间 = <b>最早的一批</b>。你的问题不是晚，是没有节奏和纵深。</td></tr>
+    <tr><td class="hl-r">「前端被 AI 碾压了」</td><td>被碾压的是「<b>实现细节</b>」这一类劳动。转向系统设计 + 领域纵深 + 问题定义。</td></tr>
+    <tr><td class="hl-r">「广度是缺点」</td><td>广度 + 一个纵深 = <b>最强配置</b>。只有广度才是缺点。</td></tr>
+    <tr><td class="hl-r">「必须进 ACM 才叫厉害」</td><td>ACM 是<b>手段</b>，不是目的。300 题保底；上瘾就进队，不上瘾就走工程。</td></tr>
+    <tr><td class="hl-r">「我要学很多技术栈」</td><td>技术栈会自己长出来。只学很少的「<b>根技术</b>」：C、数据结构算法、OS、网络、DB、数学。</td></tr>
+    <tr><td class="hl-r">「我没什么技术水平」</td><td>你缺的是「<b>讲清楚原理</b>」的能力，不是「做出来」的能力。</td></tr>
+    <tr><td class="hl-r">「混着学没关系」</td><td>一个学期<b>一个深方向</b>，其余全部降级为工具。</td></tr>
+  </table>
+</section>
+
+<!-- 22 QFFAST -->
+<section class="slide" data-sec="主线任务">
+  <div class="kicker">附录 · 主线任务</div>
+  <h2>QFFAST 复活路线图</h2>
+  <p class="lead" style="margin-bottom:clamp(10px,2vh,20px);">把那个卡了 3 个月的项目，当成你四年的主线任务。</p>
+  <div class="cols c2">
+    <div class="card"><h3>大一上</h3><p>需要：C 语言 · Linux · Git<br><span style="color:var(--text3);">状态：冻结（写进 idea.md）</span></p></div>
+    <div class="card"><h3>大一寒假</h3><p>需要：Socket 编程 · HTTP 协议<br><span style="color:var(--text3);">状态：手写 HTTP 服务器（前身）</span></p></div>
+    <div class="card"><h3>大一下</h3><p>需要：并发模型 · 数据结构<br><span style="color:var(--text3);">状态：单个节点能跑通</span></p></div>
+    <div class="card"><h3>大二上</h3><p>需要：完整 TCP/IP · 存储引擎<br><span style="color:var(--text3);">状态：文件传输 + 断点续传 + 校验</span></p></div>
+    <div class="card tb" style="border-top-color:var(--green);"><h3>大二下 ★</h3><p>需要：分布式共识 (Raft) · NAT 穿透 · WebRTC 信令<br><span class="hl-g">状态：多端同步跑通 —— 3 个月的卡点在这里解开</span></p></div>
+    <div class="card"><h3>大三</h3><p>需要：性能优化 · 一致性权衡 · 版本向量<br><span style="color:var(--text3);">状态：真正可用的多端协作</span></p></div>
+    <div class="card tb" style="border-top-color:var(--amber);"><h3>大三下</h3><p>需要：工程化 · 可观测性 · 跨端 UI<br><span class="hl">状态：开源发布，冲击 star 破千</span></p></div>
+    <div class="card"><h3>大四</h3><p>需要：全部<br><span style="color:var(--text3);">状态：毕设 + 简历核心项目</span></p></div>
+  </div>
+  <div class="quote" style="margin-top:clamp(12px,2.2vh,24px);">
+    <p class="big">你不需要「重新开始」这个项目，你需要「升级自己」，然后回来一次做对。</p>
+  </div>
+</section>
+
+<!-- 23 结尾 -->
+<section class="slide" data-sec="结语">
+  <div class="kicker">每月自检 · 最后一天填写</div>
+  <h2>五年后，你会感谢现在开始提问的自己</h2>
+  <div class="cols c2">
+    <div class="card tb"><h3>①</h3><p>这个月我学到了哪个<b>新原理</b>（不是新 API）？</p></div>
+    <div class="card tb" style="border-top-color:var(--amber);"><h3>②</h3><p>我有没有在某个难题前<b>换项目绕开</b>？（诚实回答）</p></div>
+    <div class="card tb" style="border-top-color:var(--cyan);"><h3>③</h3><p>我的算法累计题数是多少？</p></div>
+    <div class="card tb" style="border-top-color:var(--green);"><h3>④</h3><p>我有没有<b>关掉 AI</b>，独立完成过一段有难度的代码？</p></div>
+  </div>
+  <div class="card tb" style="border-top-color:var(--purple);margin-top:clamp(10px,1.8vh,20px);">
+    <h3>⑤</h3><p>我离「某一处深 100 米」更近了吗，还是只是又宽了 1 米？</p>
+  </div>
+  <div class="quote" style="margin-top:clamp(16px,3vh,34px);">
+    <p class="big">这份规划的价值，不在于你读了多少遍，<br>而在于 <span class="hl">12 月复盘时，你有没有打上那 6 个勾</span>。</p>
+  </div>
+</section>
+
+</div>
+
+<div id="hud">
+  <span class="k">←</span><span class="k">→</span> 翻页
+  <span class="k">O</span> 总览
+  <span class="k">P</span> 打印/PDF
+  <span style="margin-left:6px;" class="num" id="counter">1 / 23</span>
+</div>
+<div id="nav">
+  <button id="prev" title="上一页">‹</button>
+  <button id="next" title="下一页">›</button>
+</div>
+
+<script>
+const slides = Array.from(document.querySelectorAll('.slide'));
+const progress = document.getElementById('progress');
+const counter = document.getElementById('counter');
+const secTag = document.getElementById('secTag');
+let idx = 0;
+let overview = false;
+
+function show(i){
+  idx = Math.max(0, Math.min(i, slides.length - 1));
+  slides.forEach((s, k) => s.classList.toggle('active', k === idx));
+  progress.style.width = ((idx + 1) / slides.length * 100) + '%';
+  counter.textContent = (idx + 1) + ' / ' + slides.length;
+  secTag.textContent = slides[idx].dataset.sec || 'CS 四年规划';
+  slides[idx].scrollTop = 0;
+  location.hash = 'p' + (idx + 1);
+}
+function next(){ show(idx + 1); }
+function prev(){ show(idx - 1); }
+function toggleOverview(){
+  overview = !overview;
+  document.getElementById('deck').style.transform = overview ? 'scale(1)' : 'none';
+  if (overview){
+    document.body.style.overflow = 'auto';
+    slides.forEach(s => { s.classList.add('active'); s.style.position = 'relative'; s.style.inset = 'auto'; s.style.minHeight = '56vh'; });
+    document.getElementById('deck').style.position = 'static';
+  } else {
+    document.body.style.overflow = 'hidden';
+    document.getElementById('deck').style.position = 'fixed';
+    slides.forEach(s => { s.style.position = ''; s.style.inset = ''; s.style.minHeight = ''; s.classList.remove('active'); });
+    show(idx);
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === 'PageDown' || e.key === ' ') { e.preventDefault(); next(); }
+  else if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); prev(); }
+  else if (e.key === 'Home') { show(0); }
+  else if (e.key === 'End') { show(slides.length - 1); }
+  else if (e.key === 'o' || e.key === 'O') { toggleOverview(); }
+  else if (e.key === 'p' || e.key === 'P') { window.print(); }
+});
+document.getElementById('next').onclick = next;
+document.getElementById('prev').onclick = prev;
+document.addEventListener('click', e => {
+  if (e.target.closest('a, button')) return;
+  if (e.clientX > window.innerWidth * 0.55) next(); else prev();
+});
+
+/* 触摸滑动 */
+let tStartX = null;
+document.addEventListener('touchstart', e => { tStartX = e.touches[0].clientX; }, {passive:true});
+document.addEventListener('touchend', e => {
+  if (tStartX === null) return;
+  const dx = e.changedTouches[0].clientX - tStartX;
+  if (Math.abs(dx) > 55) { dx < 0 ? next() : prev(); }
+  tStartX = null;
+}, {passive:true});
+
+/* 主题 */
+const themeBtn = document.getElementById('themeBtn');
+function setTheme(t){
+  document.documentElement.setAttribute('data-theme', t);
+  themeBtn.textContent = (t === 'dark') ? '☀ 浅色' : '☾ 深色';
+  try { localStorage.setItem('cs-slide-theme', t); } catch (e) {}
+}
+themeBtn.onclick = () => {
+  setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark');
+};
+(function(){
+  let t = null;
+  try { t = localStorage.getItem('cs-slide-theme'); } catch (e) {}
+  if (!t) t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) ? 'light' : 'dark';
+  setTheme(t);
+})();
+
+/* 初始页（支持 #pN） */
+(function(){
+  const m = /^#p(\d+)$/.exec(location.hash);
+  show(m ? (parseInt(m[1], 10) - 1) : 0);
+})();
+</script>
+<script src="main.ts"></script>
+</body>
+</html>

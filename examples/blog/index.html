@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>流水账博客</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>流水账博客</h1>
+      <p class="sub">一个由 Nowebiew 编译的原生页面 · 无浏览器内核</p>
+    </header>
+
+    <article class="card">
+      <h2>为什么我又造了个轮子</h2>
+      <p class="meta">2026-10-04 · 随笔</p>
+      <p class="excerpt">现有的桌面方案，无论选哪个都得拖一个几十 MB 的浏览器内核。我想要的是：写的是网页，跑起来是原生程序。于是有了 Nowebiew——HTML 进去，独立 exe 出来。</p>
+      <div class="row">
+        <button id="like1">赞 0</button>
+      </div>
+    </article>
+
+    <article class="card">
+      <h2>第一个应用：计数器</h2>
+      <p class="meta">2026-10-05 · 开发日志</p>
+      <p class="excerpt">三件套写完，一条命令编译，出来一个 5.6MB 的 exe。布局用的是和 Chrome 同源的 Taffy 引擎，文字是 ClearType 直绘——模糊和古老感是不存在的。</p>
+      <div class="row">
+        <button id="like2">赞 0</button>
+      </div>
+    </article>
+
+    <article class="card">
+      <h2>和 DPI 大战三百回合</h2>
+      <p class="meta">2026-10-06 · 踩坑记录</p>
+      <p class="excerpt">按钮点了没反应？渲染目标默默叠加了一层 125% 的缩放变换。这种 bug 最气人：代码逻辑全对，就是坐标系对不上。SetDpi(96,96) 一行解决，血泪教训。</p>
+      <div class="row">
+        <button id="like3">赞 0</button>
+      </div>
+    </article>
+  </div>
+</body>
+</html>

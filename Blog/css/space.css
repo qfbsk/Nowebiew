@@ -1,0 +1,172 @@
+/* 初始化 */
+*{
+    margin: 0;
+    padding: 0; 
+    scroll-behavior: smooth;    
+}
+/* 导入字体 */
+@font-face {
+font-family: "zitao";
+src: url("../font/ZiTiaoZiChangYingHe.ttf") format("truetype");
+}
+/* 初始化body */
+body{
+    width: 100%;
+    height: 100%;
+}
+/* 背景 */
+.background{
+    position:fixed;
+    background-image: url("../images/bk1.jpg");
+    background-repeat:no-repeat;
+    background-size: 100% 100%;
+    width:100% ;
+    height:100%;
+}
+/* logo */
+.logo{
+    position:fixed;
+    z-index:10;
+}  
+.nav{
+    color:rgba(0,0,0,.62);
+    position:fixed;
+    z-index:11;         /* 必须高于logo一级，不然会被遮盖 */
+    top:1vh; 
+    right:0;
+}  
+/* 导航栏 */
+.nav a{
+    float:right;
+    padding:0 3vw;
+    font-size:250%;
+    font-family:zitao;
+    text-decoration:none;
+    color:rgba(255,255,255,.62);
+}  
+/* 导航栏底部 */        
+.top{
+    position:fixed;
+    background-color:rgba(127.5,127.5,127.5,.25) ;
+    width:100%;
+    height:13vh;
+    z-index:9;
+}
+.box{
+    position:relative;
+    z-index:10;
+    left:50%;
+    border-radius: 5%;
+    background-color:rgba(127.5,127.5,127.5,.25);
+}
+.txt{
+    font-size:16vw;
+    text-align:center;
+}
+.time{
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%,-50%); 
+}
+.mengban{
+    background-color:rgba(0,0,0,.99);
+    position:fixed; 
+    width: 100%;
+    height: 100%;
+    z-index:999999;
+    display:block;
+}
+.container{
+    position:fixed;
+    z-index:9;
+    top:14%;
+    background-color:rgba(127.5,127.5,127.5,.1);
+    height:81%;
+    width:97%;
+    margin:0 auto;
+    left:0;
+    right:0;
+    padding: 1%;
+}
+.left{
+    position:absolute;
+    background-color:rgba(127.5,127.5,127.5,.1);
+    height:90%;
+    width:76%;
+    padding: 1%;
+    overflow:auto;
+}
+.right{
+    position:absolute;
+    background-color:rgba(127.5,127.5,127.5,.1);
+    height:90%;
+    width:16%;
+    padding: 1%;
+    left:81%;
+    overflow:auto;
+}
+#card1,#card2,#card3{
+    border-radius: 1%; 
+    weight:96%;
+    margin:0 auto;  
+    background-color:rgba(127.5,127.5,127.5,.35); 
+    padding: 1vw;
+    color:rgba(0,0,0,.62);
+}
+#title1,#title2,#title3{
+    font-family:zitao; 
+    letter-spacing:1vw;
+    line-height:120%;
+    font-size:3.5vw;
+    text-indent:1vw;
+    float:left;    
+}
+#writedate1,#writedate2,#writedate3{
+    font-family:zitao; 
+    letter-spacing:1vw;
+    line-height:120%;
+    font-size:3.5vw;
+    text-indent:1vw;
+    float:right;    
+}
+#picture1,#picture2,#picture3{
+    width:100%;
+    height:100%;
+    -webkit-filter: opacity(70%); /* Chrome, Safari, Opera */
+    filter: opacity(70%);
+    border-radius: 2%;
+}
+#thinking1,#thinking2,#thinking3{
+    font-family:zitao;
+    letter-spacing:0.1vw;
+    line-height:120%;
+    font-size:2.2vw;
+}
+#directory{
+    font-family:zitao; 
+    letter-spacing:0.5vw;
+    text-align:center;  
+    font-size:3.5vw;
+    text-indent:1vw;
+    color:rgba(0,0,0,.62);  
+}
+#m1,#m2,#m3,#m4{
+    font-size:2vw;
+    font-family:zitao;
+    text-decoration:none;
+    color:rgba(255,255,255,.62);
+    letter-spacing:0.5vw;
+    text-align:center;  
+    line-height:120%;  
+}
+@media screen and (orientation:landscape) {
+.mengban{
+z-index:-1;
+display:none;
+}}
+@media screen and (orientation:portrait) {
+.mengban{
+z-index:999999;
+display:block;
+}}

@@ -1,0 +1,17 @@
+# nowebiewc 构建配置
+# 本机无 MSVC Build Tools / Windows SDK，Rust(msvc ABI) 改用自带 rust-lld 链接，
+# CRT 符号由 shim.obj（shim.c 编译产物）+ MinGW-w64 ucrt 导入库补齐。
+# 注意：这只影响 nowebiewc 编译器自身的构建；Nowebiew 编译出的程序是纯 C，
+# 由 gcc 原生链接，不经过此配置。
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"
+rustflags = [
+    "-C", "link-arg=E:\\Nowebiew\\compiler\\.shimlib\\shim.obj",
+    "-C", "link-arg=/LIBPATH:E:\\Nowebiew\\compiler\\.shimlib",
+    "-C", "link-arg=E:\\Nowebiew\\compiler\\.shimlib\\lib64_libmingw32_a-tlssup.o",
+    "-C", "link-arg=E:\\Nowebiew\\compiler\\.shimlib\\lib64_libmingw32_a-tlsthrd.o",
+    "-C", "link-arg=E:\\Nowebiew\\compiler\\.shimlib\\lib64_libmingw32_a-tls_atexit.o",
+    # 主线程栈 64MB：多页面编译管线（递归下降解析/代码生成）栈深增大
+    "-C", "link-arg=/STACK:0x4000000",
+]

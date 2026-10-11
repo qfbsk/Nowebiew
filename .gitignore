@@ -1,0 +1,33 @@
+# ===== Rust 构建产物 =====
+target/
+**/target/
+
+# ===== C 编译产物 / 缓存 =====
+*.o
+*.obj
+*.lib
+*.exe
+cache/
+rt_cache/
+
+# ===== 项目内构建目录 =====
+build/
+**/build/
+
+# ===== 截图 / 调试产物 =====
+*.bmp
+*.ppm
+*.png
+*.log
+*.bak
+
+# ===== 根目录调试文本 =====
+*.txt
+**/empty
+
+# ===== AI 工作区（本地会话数据） =====
+.workbuddy/
+
+# ===== 系统杂项 =====
+Thumbs.db
+desktop.ini

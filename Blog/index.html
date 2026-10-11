@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>清枫客-主页</title>
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body onload="initialize();startTime();"><!-- 加载完成广播 -->
+    <div class="nav" >
+        <a href="https://qm.qq.com/cgi-bin/qm/qr?k=65e3RALJLFMvCm08045u-PVs5OnWLvAJ&noverify=0" id="nav4">联系</a>   <!-- 采用这种方法是难言之隐，目前h5技术没有js修改css伪类的方法，如果将id设为统一又会只修改一个 -->
+        <a href="space.html" id="nav3">空间</a>
+        <a href="experience.html" id="nav2">经历</a>
+        <a href="" id="nav1">首页</a>
+    </div>
+    <div class="top"></div>
+    <div class="logo"><img src="images/logohalfblack.png" alt="" width="18%" height="18%" id="logo" onclick="change()"></div>
+    <div class="background" id="background"></div><!-- 背景 -->
+    
+        <div class="time" id="container1">
+        <p class="txt" id="txt"></p>
+        <p style="font-size:4vw;text-align:center;font-family:zitao;letter-spacing:0.2vw;text-shadow:0.3vw 0.3vw rgba(127.5,127.5,127.5,.5);">活的像风，没归宿，却很酷</p>
+        </div>
+    </div>
+    <div style="position:absolute;top: 50%;transform: translate(0,-50%);padding:1vw;line-height:300%" id="container2">
+    </div>
+    <div class="mengban">
+        <p style="text-align:center;font-size:50px;color:white;">横屏浏览效果更佳</p>
+    </div>
+    <script src="js/script.js"></script>   
+</body>
+</html>

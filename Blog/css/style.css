@@ -1,0 +1,94 @@
+/* 初始化 */
+*{
+    margin: 0;
+    padding: 0;  
+}
+/* 导入字体 */
+@font-face {
+font-family: "zitao";
+src: url("../font/ZiTiaoZiChangYingHe.ttf") format("truetype");
+}
+/* 初始化body */
+body{
+    width: 100%;
+    height: 100%;
+}
+/* 背景 */
+.background{
+    position:fixed;
+    background-image: url("../images/bk1.jpg");
+    background-repeat:no-repeat;
+    background-size: 100% 100%;
+    width:100% ;
+    height:100%;
+}
+/* logo */
+.logo{
+    position:fixed;
+    z-index:10;
+}  
+.nav{
+    color:rgba(0,0,0,.62);
+    position:fixed;
+    z-index:11;         /* 必须高于logo一级，不然会被遮盖 */
+    top:1vh; 
+    right:0;
+}  
+/* 导航栏 */
+.nav a{
+    float:right;
+    padding:0 3vw;
+    font-size:250%;
+    font-family:zitao;
+    text-decoration:none;
+    color:rgba(255,255,255,.62);
+}  
+/* 导航栏底部 */        
+.top{
+    position:fixed;
+    background-color:rgba(127.5,127.5,127.5,.25) ;
+    width:100%;
+    height:60px;
+    z-index:9;
+}
+.box{
+    position:relative;
+    z-index:10;
+    left:50%;
+    border-radius: 5%;
+    background-color:rgba(127.5,127.5,127.5,.25);
+}
+.txt{
+    font-size:16vw;
+    text-align:center;
+}
+.time{
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%,-50%); 
+}
+#container1{
+    color:rgba(0,0,0,.62);
+}
+#container2{
+    color:rgba(0,0,0,.62);
+}
+.mengban{
+    background-color:rgba(0,0,0,.99);
+    position:fixed; 
+    width: 100%;
+    height: 100%;
+    z-index:999999;
+    display:block;
+}
+@media screen and (orientation:landscape) {
+.mengban{
+z-index:-1;
+display:none;
+}}
+@media screen and (orientation:portrait) {
+.mengban{
+z-index:999999;
+display:block;
+}}

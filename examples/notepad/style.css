@@ -1,0 +1,22 @@
+body { background: #e5e7eb; }
+#bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px;
+  background: #ffffff;
+}
+button {
+  background: #2563eb;
+  color: #ffffff;
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 14px;
+}
+#status { color: #6b7280; font-size: 13px; }
+#pad {
+  width: 100%;
+  height: 500px;
+  background: #ffffff;
+  font-size: 15px;
+}

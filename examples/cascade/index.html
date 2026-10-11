@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>CSS 级联验证</title>
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* head style 块：文档顺序在 link 之后，同特异性 → 覆盖 link 的红 */
+    .b { background: green; }
+    /* id 特异性 1000 > class 100：无论顺序都压过 .a */
+    #four { background: yellow; }
+  </style>
+</head>
+<body>
+  <div class="box b" id="one">1 head样式块:绿 (链接的红被覆盖)</div>
+
+  <!-- body 内的 style 块也参与级联，且在 head style 之后 -->
+  <style>
+    .c { background: purple; }
+  </style>
+
+  <div class="box c">2 body内样式块:紫 (独立类验证body块生效)</div>
+  <div class="box b" style="background: blue; color: white;">3 内联:蓝 (head的绿被内联覆盖)</div>
+  <div class="box b" id="four">4 id选择器:黄 (特异性胜class的绿)</div>
+</body>
+</html>

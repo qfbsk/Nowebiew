@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的个人博客</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="site-header">
+        <div class="container">
+            <h1 class="blog-title">My Blog</h1>
+            <button id="themeBtn">切换暗色</button>
+            <nav>
+                <a href="#">首页</a>
+                <a href="#">归档</a>
+                <a href="#">关于</a>
+            </nav>
+        </div>
+    </header>
+
+    <main class="container">
+        <section class="article-list">
+            <article class="article-item">
+                <h2 class="article-title">第一篇博客：搭建静态博客</h2>
+                <div class="article-meta">2026-10-08</div>
+                <div class="article-content">
+                    <p>这是使用原生 HTML + CSS + JavaScript 写的静态博客。不需要后端，直接浏览器打开即可运行。</p>
+                    <p>静态博客适合记录学习笔记、技术心得，轻量简单。</p>
+                </div>
+                <button class="read-more" id="more1">阅读全文</button>
+            </article>
+
+            <article class="article-item">
+                <h2 class="article-title">计算机学习笔记</h2>
+                <div class="article-meta">2026-10-07</div>
+                <div class="article-content">
+                    <p>学习路线：C语言、数据结构、操作系统、计算机网络。打好底层基础很关键。</p>
+                    <p>多动手写代码，不要只看书。</p>
+                </div>
+                <button class="read-more" id="more1">阅读全文</button>
+            </article>
+        </section>
+    </main>
+
+    <footer class="site-footer">
+        <div class="container">© 2026 My Blog | 原生静态页面</div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>

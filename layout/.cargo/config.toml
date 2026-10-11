@@ -1,0 +1,13 @@
+[target.x86_64-pc-windows-gnu]
+linker = "D:/AllOnePlus/.store/cpp/gcc/16.2.0posix-14.0.0-ucrt-r1/bin/gcc.exe"
+ar = "D:/AllOnePlus/.store/cpp/gcc/16.2.0posix-14.0.0-ucrt-r1/bin/ar.exe"
+
+[target.x86_64-pc-windows-msvc]
+linker = "rust-lld"
+rustflags = [
+    "-C", "link-arg=E:\\Nowebiew\\compiler\\.shimlib\\shim.obj",
+    "-C", "link-arg=/LIBPATH:E:\\Nowebiew\\compiler\\.shimlib",
+    "-C", "link-arg=E:\\Nowebiew\\compiler\\.shimlib\\lib64_libmingw32_a-tlssup.o",
+    "-C", "link-arg=E:\\Nowebiew\\compiler\\.shimlib\\lib64_libmingw32_a-tlsthrd.o",
+    "-C", "link-arg=E:\\Nowebiew\\compiler\\.shimlib\\lib64_libmingw32_a-tls_atexit.o",
+]

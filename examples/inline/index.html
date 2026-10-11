@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Nowebiew 内联脚本</title>
+    <style>
+        body { background: #f4f6f9; font-family: "Segoe UI", sans-serif; color: #1b2129; }
+        #app { padding: 48px; }
+        h1 { font-size: 28px; }
+        #label { font-size: 22px; color: #0d1014; }
+        .row { margin-top: 16px; }
+        button {
+            font-size: 16px; padding: 8px 20px; margin-right: 8px;
+            background: #ffffff; color: #1b2129;
+            border: 1px solid #d9dee5; border-radius: 6px;
+        }
+        .hint { color: #98a3b3; font-size: 13px; margin-top: 24px; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <h1>Nowebiew 内联脚本计数器</h1>
+        <p id="label">当前计数：0</p>
+        <div class="row">
+            <button id="dec">− 1</button>
+            <button id="inc">+ 1</button>
+        </div>
+        <p class="hint">脚本内联在 HTML 里 · 编译为原生 exe · 无 WebView</p>
+    </div>
+    <script>
+        // 脚本直接写在页面里（TS 子集语法）——不再需要单独的 main.ts
+        const label = document.getElementById("label");
+        const incBtn = document.getElementById("inc");
+        const decBtn = document.getElementById("dec");
+
+        let count = 0;
+
+        function render() {
+            label.textContent = "当前计数：" + String(count);
+        }
+
+        function onInc() {
+            count++;
+            render();
+        }
+
+        function onDec() {
+            count--;
+            render();
+        }
+
+        incBtn.onclick = onInc;
+        decBtn.onclick = onDec;
+        render();
+    </script>
+</body>
+</html>

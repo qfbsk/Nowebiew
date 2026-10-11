@@ -44,6 +44,9 @@ pub struct Checked {
     /// 函数体顶层变量的终态类型：(ctx, name) -> Ty（Str 吸收 Num 后 C 存储类型，
     /// codegen 据此发射局部声明与隐式转换；ctx = "name#key"）
     pub local_types: HashMap<(String, String), Ty>,
+    /// 定向闭包捕获：实例 ctx -> 被捕获的外层 lambda 参数名（限单变量，恒为 Element）。
+    /// codegen 据此在包装器中把事件目标节点注入为 nw_evt_self，ci() 命中时改发 nw_evt_self。
+    pub captures: HashMap<String, String>,
 }
 
 pub struct CheckError {
@@ -149,9 +152,18 @@ struct Mono<'a> {
     call_keys: HashMap<(u32, u32), Vec<Ty>>,
     /// 函数体顶层变量终态类型：(ctx, name) -> Ty
     local_types: HashMap<(String, String), Ty>,
-    /// 延迟回调工作队列：(fn, key, 事件种类)。回调体不属于任何同步调用图，
-    /// 在顶层走查完毕后统一实例化（浏览器语义：事件/定时器触发时才执行）
-    pending_cbs: Vec<(String, Vec<Ty>, Option<u8>)>,
+    /// 延迟回调工作队列：(fn, key, 事件种类, 捕获的外层 lambda 参数快照)。
+    /// 回调体不属于任何同步调用图，在顶层走查完毕后统一实例化
+    /// （浏览器语义：事件/定时器触发时才执行）
+    pending_cbs: Vec<(String, Vec<Ty>, Option<u8>, Vec<(String, Ty)>)>,
+    /// lambda 实例化进行中的参数栈（嵌套 lambda 的捕获源；仅 lambda 参数可捕获）
+    lambda_params: Vec<(String, Ty)>,
+    /// 排空队列时当前回调的捕获快照（lookup_cap 命中即视为捕获读）
+    drain_capture: Vec<(String, Ty)>,
+    /// 捕获记录：实例 ctx（与 codegen cur_fn 同格式） -> 被捕获变量名。
+    /// 限单变量：被捕获 Elem 参数 = addEventListener 的目标节点，
+    /// 运行时由包装器以事件 self 注入（定向闭包，覆盖 forEach+addEventListener 惯用法）
+    captures: HashMap<String, String>,
 }
 
 pub fn check(prog: &Program, elem_ids: &std::collections::HashSet<String>) -> CResult<Checked> {
@@ -189,6 +201,9 @@ pub fn check(prog: &Program, elem_ids: &std::collections::HashSet<String>) -> CR
         call_keys: HashMap::new(),
         local_types: HashMap::new(),
         pending_cbs: Vec::new(),
+        lambda_params: Vec::new(),
+        drain_capture: Vec::new(),
+        captures: HashMap::new(),
     };
     // 顶层语句是唯一的实例化入口；scopes[0] 恒为全局作用域。
     // 克隆后按可变遍历检查（Null 流定型需要回写 let 的推导类型）
@@ -210,10 +225,12 @@ pub fn check(prog: &Program, elem_ids: &std::collections::HashSet<String>) -> CR
     }
     // 排空延迟回调队列：回调体（事件处理器/定时器回调）统一在此实例化。
     // 排空过程中注册的新回调（回调里再注册回调）继续入队，直至队空。
-    while let Some((fname, key, evt)) = m.pending_cbs.pop() {
+    while let Some((fname, key, evt, cap)) = m.pending_cbs.pop() {
         let saved = m.cur_evt;
         m.cur_evt = evt;
+        m.drain_capture = cap;
         let ret = m.ret_of(&fname, key, 0, 0)?;
+        m.drain_capture = Vec::new();
         m.cur_evt = saved;
         if ret != Ty::Void {
             return Err(cerr(format!("回调 '{}' 必须返回 void", fname), 0, 0));
@@ -256,6 +273,7 @@ pub fn check(prog: &Program, elem_ids: &std::collections::HashSet<String>) -> CR
         timer_fns: m.timer_fns,
         call_keys: m.call_keys,
         local_types: m.local_types,
+        captures: m.captures,
     })
 }
 
@@ -267,6 +285,34 @@ impl<'a> Mono<'a> {
             }
         }
         None
+    }
+
+    /// 变量读取查找（含捕获）：本地/全局未命中时查当前回调的捕获快照。
+    /// 命中 = 外层 lambda 的 Elem 参数 → 记录捕获（限单变量/实例），返回 Elem。
+    /// 语义：该参数恒为 addEventListener 的目标节点，运行时以事件 self 注入。
+    fn lookup_cap(&mut self, name: &str, line: u32, col: u32) -> CResult<Option<(Ty, bool)>> {
+        if let Some(v) = self.lookup(name) {
+            return Ok(Some(v));
+        }
+        if let Some((_, ty)) = self.drain_capture.iter().find(|(n, _)| n == name) {
+            let ty = *ty;
+            if ty != Ty::Elem {
+                return Err(cerr(format!(
+                    "闭包捕获 '{}' 的类型是 {}——暂仅支持捕获 Element（addEventListener 目标节点惯用法）",
+                    name, ty.name()), line, col));
+            }
+            match self.captures.get(&self.cur_ctx) {
+                Some(prev) if prev != name => {
+                    return Err(cerr(format!(
+                        "处理器 '{}' 捕获了多个外部变量（'{}' 与 '{}'）——暂仅支持单捕获（目标节点）",
+                        self.cur_ctx, prev, name), line, col));
+                }
+                Some(_) => {}
+                None => { self.captures.insert(self.cur_ctx.clone(), name.to_string()); }
+            }
+            return Ok(Some((ty, false)));
+        }
+        Ok(None)
     }
 
     fn declare(&mut self, name: &str, ty: Ty, mutable: bool, line: u32, col: u32) -> CResult<()> {
@@ -391,6 +437,14 @@ impl<'a> Mono<'a> {
             self.fn_ret = decl.ret;
             self.saw_value_return = false;
             self.ret_ty = None;
+            /* lambda 参数入栈：嵌套内层 lambda 注册回调时按栈顶快照捕获。
+             * 仅 lambda（nw_lambda_*）参数可捕获——命名函数的参数生命周期
+             * 与调用图绑定，不存在浏览器闭包语义 */
+            let is_lambda = fname.starts_with("nw_lambda_");
+            let saved_lp_len = self.lambda_params.len();
+            if is_lambda {
+                for (n, t) in &params { self.lambda_params.push((n.clone(), *t)); }
+            }
             for (n, t) in &params {
                 /* JS 参数可变（浏览器语义：形参就是局部变量） */
                 self.scopes.last_mut().unwrap().vars.insert(n.clone(), (*t, true));
@@ -398,6 +452,7 @@ impl<'a> Mono<'a> {
             for s in decl.body.iter_mut() {
                 self.check_stmt(s)?;
             }
+            if is_lambda { self.lambda_params.truncate(saved_lp_len); }
             // 归纳返回类型
             let ret = match decl.ret {
                 Some(t) => {
@@ -626,7 +681,7 @@ impl<'a> Mono<'a> {
                  * document.body 特例 → "document.body@style"） */
                 if let Some(elem) = obj.strip_suffix("@style") {
                     if elem != "document.body" {
-                        let et = match self.lookup(elem) {
+                        let et = match self.lookup_cap(elem, *line, *col)? {
                             Some((t, _)) => t,
                             None => return Err(cerr(format!("未定义的变量 '{}'", elem), *line, *col)),
                         };
@@ -662,7 +717,7 @@ impl<'a> Mono<'a> {
                     }
                     return Ok(());
                 }
-                let ot = match self.lookup(obj) {
+                let ot = match self.lookup_cap(obj, *line, *col)? {
                     Some((t, _)) => t,
                     None => return Err(cerr(format!("未定义的变量 '{}'", obj), *line, *col)),
                 };
@@ -713,7 +768,7 @@ impl<'a> Mono<'a> {
                         }
                         /* 回调延迟检查：回调体不入当前同步调用图（浏览器语义，
                          * 事件触发时才执行），避免 A→回调→A 被误判为同步递归 */
-                        self.pending_cbs.push((fname.clone(), vec![], Some(0)));
+                        self.pending_cbs.push((fname.clone(), vec![], Some(0), self.lambda_params.clone()));
                         if !self.onclick_fns.iter().any(|f| f == fname) {
                             self.onclick_fns.push(fname.clone());
                         }
@@ -798,7 +853,7 @@ impl<'a> Mono<'a> {
                         }
                         /* 回调延迟检查：回调体不入当前同步调用图（浏览器语义，
                          * 事件触发时才执行），避免 A→回调→A 被误判为同步递归 */
-                        self.pending_cbs.push((fname.clone(), vec![], Some(0)));
+                        self.pending_cbs.push((fname.clone(), vec![], Some(0), self.lambda_params.clone()));
                         if !self.onclick_fns.iter().any(|f| f == fname) {
                             self.onclick_fns.push(fname.clone());
                         }
@@ -1006,7 +1061,7 @@ impl<'a> Mono<'a> {
                 if name == "document.body" {
                     return Ok(Ty::Elem);
                 }
-                self.lookup(name)
+                self.lookup_cap(name, *line, *col)?
                     .map(|(t, _)| t)
                     .ok_or_else(|| cerr(format!("未定义的变量 '{}'", name), *line, *col))
             }
@@ -1083,11 +1138,12 @@ impl<'a> Mono<'a> {
                 // 处理器 0 参（走 onclick 通道）或 1 个 Event 参数（nwe_ 包装器）。
                 if let Some(obj) = callee.strip_suffix(".addEventListener") {
                     if !obj.is_empty() && obj != "document" && obj != "window" {
-                        let t = self.lookup(obj).map(|(t, _)| t)
-                            .ok_or_else(|| cerr(format!("未定义的变量 '{}'", obj), *line, *col))?;
-                        if t != Ty::Elem {
-                            return Err(cerr("addEventListener 只能用于 Element（document.addEventListener 除外）", *line, *col));
-                        }
+                    let t = self.lookup_cap(obj, *line, *col)?
+                        .map(|(t, _)| t)
+                        .ok_or_else(|| cerr(format!("未定义的变量 '{}'", obj), *line, *col))?;
+                    if t != Ty::Elem {
+                        return Err(cerr("addEventListener 只能用于 Element（document.addEventListener 除外）", *line, *col));
+                    }
                         if args.len() != 2 {
                             return Err(cerr("addEventListener 的参数必须是 (事件名, 处理函数)", *line, *col));
                         }
@@ -1106,7 +1162,7 @@ impl<'a> Mono<'a> {
                             .ok_or_else(|| cerr(format!("未定义的函数 '{}'", fname), *line, *col))?;
                         match d.params.len() {
                             0 => {
-                                self.pending_cbs.push((fname.clone(), vec![], Some(0)));
+                                self.pending_cbs.push((fname.clone(), vec![], Some(0), self.lambda_params.clone()));
                                 if !self.onclick_fns.iter().any(|f| f == &fname) {
                                     self.onclick_fns.push(fname.clone());
                                 }
@@ -1117,7 +1173,7 @@ impl<'a> Mono<'a> {
                                         return Err(cerr(format!("事件处理器 '{}' 的参数类型必须是 Event（或不写参数）", fname), *line, *col));
                                     }
                                 }
-                                self.pending_cbs.push((fname.clone(), vec![Ty::Event], Some(0)));
+                                self.pending_cbs.push((fname.clone(), vec![Ty::Event], Some(0), self.lambda_params.clone()));
                                 if !self.el_click_evt_fns.iter().any(|f| f == &fname) {
                                     self.el_click_evt_fns.push(fname.clone());
                                 }
@@ -1162,7 +1218,7 @@ impl<'a> Mono<'a> {
                     let saved = self.cur_evt;
                     self.cur_evt = Some(kind);
                     /* 回调延迟检查：事件处理器体不属于当前同步调用图 */
-                    self.pending_cbs.push((fname.clone(), vec![Ty::Event], Some(kind)));
+                    self.pending_cbs.push((fname.clone(), vec![Ty::Event], Some(kind), self.lambda_params.clone()));
                     self.cur_evt = saved;
                     let list = match kind {
                         1 => &mut self.key_event_fns,
@@ -1192,7 +1248,7 @@ impl<'a> Mono<'a> {
                         return Err(cerr("setTimeout 的第二个参数必须是 number 毫秒", *line, *col));
                     }
                     /* 回调延迟检查：setTimeout 回调体不属于当前同步调用图 */
-                    self.pending_cbs.push((fname.clone(), vec![], None));
+                    self.pending_cbs.push((fname.clone(), vec![], None, self.lambda_params.clone()));
                     if !self.timer_fns.iter().any(|f| f == &fname) { self.timer_fns.push(fname); }
                     return Ok(Ty::Num); /* 返回定时器 id */
                 }
@@ -1396,7 +1452,7 @@ impl<'a> Mono<'a> {
                 self.ret_of(callee, argt, *line, *col)
             }
             Expr::ElemValue { obj, line, col } => {
-                let t = self.lookup(obj)
+                let t = self.lookup_cap(obj, *line, *col)?
                     .map(|(t, _)| t)
                     .ok_or_else(|| cerr(format!("未定义的变量 '{}'", obj), *line, *col))?;
                 if t != Ty::Elem {
@@ -1405,7 +1461,7 @@ impl<'a> Mono<'a> {
                 Ok(Ty::Str)
             }
             Expr::PropRead { obj, prop, line, col } => {
-                let t = self.lookup(obj)
+                let t = self.lookup_cap(obj, *line, *col)?
                     .map(|(t, _)| t)
                     .ok_or_else(|| cerr(format!("未定义的变量 '{}'", obj), *line, *col))?;
                 if t != Ty::Event {
@@ -1473,7 +1529,7 @@ impl<'a> Mono<'a> {
                 if it != Ty::Num {
                     return Err(cerr(format!("下标必须是 number，这里是 {}", it.name()), *line, *col));
                 }
-                let t = self.lookup(obj)
+                let t = self.lookup_cap(obj, *line, *col)?
                     .map(|(t, _)| t)
                     .ok_or_else(|| cerr(format!("未定义的变量 '{}'", obj), *line, *col))?;
                 match t {
@@ -1517,7 +1573,7 @@ impl<'a> Mono<'a> {
                 Ok(Ty::Bool)
             }
             Expr::ForEach { list, fncall, line, col } => {
-                let t = self.lookup(list)
+                let t = self.lookup_cap(list, *line, *col)?
                     .map(|(t, _)| t)
                     .ok_or_else(|| cerr(format!("未定义的变量 '{}'", list), *line, *col))?;
                 if t != Ty::ElemList {

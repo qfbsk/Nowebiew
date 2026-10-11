@@ -36,6 +36,7 @@ pub fn generate(prog: &Program, checked: &Checked, is_ui: bool, ui_prefix: &str,
                       i.params.iter().map(|(n, t)| (n.clone(), *t)).collect()))
             .collect(),
         local_types: checked.local_types.clone(),
+        captures: checked.captures.clone(),
         cur_fn: None,
         is_ui,
         pfx: pfx.to_string(),
@@ -65,6 +66,8 @@ struct Gen {
     inst_params: HashMap<(String, Vec<Ty>), Vec<(String, Ty)>>,
     /// 函数体顶层变量终态类型：(ctx, name) -> Ty（Str 吸收 Num 的 C 存储类型）
     local_types: HashMap<(String, String), Ty>,
+    /// 定向闭包捕获：实例 ctx -> 被捕获的外层 lambda 参数名（check 侧标注）
+    captures: HashMap<String, String>,
     /// 当前正在发射的实例上下文（与 check 的 cur_ctx 同格式 "name#key"）
     cur_fn: Option<String>,
     is_ui: bool,
@@ -193,6 +196,17 @@ fn fn_c_name(decl: &str, key: &[Ty]) -> String {
 }
 
 impl Gen {
+    /// 定向闭包捕获命中：返回注入变量名（nw_evt_self），未命中 None。
+    /// ci() 与 expr(Ident) 的查找兜底共用。
+    fn cap_lookup(&self, name: &str) -> Option<String> {
+        let cf = self.cur_fn.as_ref()?;
+        if self.captures.get(cf).map(|c| c == name).unwrap_or(false) {
+            Some(format!("{}nw_evt_self", self.pfx))
+        } else {
+            None
+        }
+    }
+
     /// 实例函数 C 名（多页时带页前缀；nwh_* 已由 uigen 页内唯一化，透传）
     fn fnc(&self, decl: &str, key: &[Ty]) -> String {
         if decl.starts_with("nwh_") { return decl.to_string(); }
@@ -207,6 +221,11 @@ impl Gen {
             if sc.contains_key(name) {
                 return if i == 0 { format!("{}nwl_{}", self.pfx, name) } else { c_ident(name) };
             }
+        }
+        /* 定向闭包捕获：实例内引用外层 lambda 参数（forEach 回调的元素形参
+         * 在其内层箭头处理器里被引用）→ 运行时由包装器注入事件目标节点 */
+        if let Some(c) = self.cap_lookup(name) {
+            return c;
         }
         if self.scopes.len() > 1 {
             c_ident(name)
@@ -321,6 +340,10 @@ impl Gen {
         for (name, ty, _) in &self.top_vars {
             let _ = writeln!(hdr2, "static {} {};", cty(*ty), self.ci(name));
         }
+        /* 定向闭包捕获的事件自节点（仅捕获页发射；页前缀隔离多页） */
+        if !self.captures.is_empty() {
+            let _ = writeln!(hdr2, "static NWNode* {}nw_evt_self = 0;", self.pfx);
+        }
         let _ = writeln!(hdr2);
 
         self.out.push_str(&hdr2);
@@ -390,12 +413,18 @@ impl Gen {
             self.cur_fn = None;
         }
 
-        // onclick 包装器：TS 的 () -> void 函数适配 C 回调签名
+        // onclick 包装器：TS 的 () -> void 函数适配 C 回调签名。
+        // 有捕获的处理器先把事件目标节点注入 nw_evt_self（ci() 命中捕获的引用点）
         for fname in &self.onclick_fns {
             let cname = self.fnc(fname, &[]);
+            let body = if self.captures.contains_key(&format!("{}#", fname)) {
+                format!("{}nw_evt_self = self; {}();", self.pfx, cname)
+            } else {
+                format!("(void)self; {}();", cname)
+            };
             let _ = writeln!(self.out,
-                "static void {}(NWNode* self) {{ (void)self; {}(); }}",
-                self.wrap("nww", fname), cname);
+                "static void {}(NWNode* self) {{ {} }}",
+                self.wrap("nww", fname), body);
         }
         // onkeydown 包装器：vk（Win32 虚拟键码）适配 TS 的 (number) -> void
         for fname in &self.key_fns {
@@ -423,9 +452,14 @@ impl Gen {
         // 绑定节点自身为 target，坐标以零值占位（元素级事件无全局坐标语义）
         for fname in &self.el_click_evt_fns {
             let cname = self.fnc(fname, &[Ty::Event]);
+            let pre = if self.captures.contains_key(&format!("{}#E", fname)) {
+                format!("{}nw_evt_self = nw_self; ", self.pfx)
+            } else {
+                String::new()
+            };
             let _ = writeln!(self.out,
-                "static void {}(NWNode* nw_self) {{ {}(0.0, 0.0, nw_self); }}",
-                self.wrap("nwe", fname), cname);
+                "static void {}(NWNode* nw_self) {{ {}{}(0.0, 0.0, nw_self); }}",
+                self.wrap("nwe", fname), pre, cname);
         }
         // addEventListener("keydown", fn) 包装器：运行时键盘事件（e.key 字符串）
         // wchar -> NWStr 转换在包装器内完成，处理器形参即 e.key 本体（零开销读）
@@ -916,10 +950,13 @@ fn camel_to_kebab_c(s: &str) -> String {
                 }
                 match self.lookup(name) {
                     Some(t) => Some((self.ci(name), t)),
-                    None => {
-                        self.fail(format!("codegen: 未定义变量 {} ({}:{})", name, line, col));
-                        None
-                    }
+                    None => match self.cap_lookup(name) {
+                        Some(c) => Some((c, Ty::Elem)),
+                        None => {
+                            self.fail(format!("codegen: 未定义变量 {} ({}:{})", name, line, col));
+                            None
+                        }
+                    },
                 }
             }
             Expr::Unary(op, inner) => {

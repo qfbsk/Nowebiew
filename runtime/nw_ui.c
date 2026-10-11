@@ -59,6 +59,7 @@ const wchar_t* nw_str_to_wide(NWStr s) {
 static void nw_relayout(void);
 void nw_restyle_now(void);
 static void media_restyle_now(void);
+static void nw_defer_post(int kind);
 static void ensure_invalidate(void);
 static void wcls_rebuild(NWNode* n);
 void nw_dump_nodes(void);
@@ -138,6 +139,14 @@ struct NWNode {
     int inline_color;             /* JS style.color 写入：永久压过级联（restyle 重放让位） */
     int inline_bg_res;            /* JS style.backgroundImage：reset 后恢复 + 级联让位 */
     int inline_bg_fit;
+    /* JS 内联 position/inset/min-height：reset 后恢复快照 + 级联重放让位
+     * （nw_st_reset 清零 st 后规则重放会重套 .slide{position:absolute}，
+     *  没有守卫则 toggleOverview 类内联定位永远被吞） */
+    int inline_pos;               /* -1=无；否则=内联 pos_kind 值 */
+    int inline_inset;             /* -1=无；1=内联 inset 生效（快照存下方） */
+    float inline_inset_v[4]; int inline_inset_k[4];
+    int inline_minh;              /* -1=无；1=内联 min-height 生效 */
+    float inline_minh_v; int inline_minh_k;
     float ls_v; int ls_unit;      /* letter-spacing 值+单位（0px 1vw 2vh 3em） */
     float lh_v; int lh_unit;      /* line-height（-1 默认 0倍数 1px 2vw 3vh 4em） */
 
@@ -335,6 +344,7 @@ int nw_theme_count(void) { return 1; } /* uigen 校验用（编译期已查） *
 static void node_init_common(NWNode* n) {
     n->img_res = -1; n->bg_img_res = -1;
     n->inline_bg_res = -1;
+    n->inline_pos = -1; n->inline_inset = -1; n->inline_minh = -1;
     n->bg_fit = 0;
     n->lh_unit = -1;
     n->ls_unit = 0;
@@ -557,7 +567,7 @@ void nw_cls_add(NWNode* n, const wchar_t* cls) {
     else memcpy(nw2, cls, (al + 1) * sizeof(wchar_t));
     free(n->wcls); n->wcls = nw2;
     wcls_sync(n);
-    media_restyle_now(); /* classList 变更 → 守卫/display 全量重算（J11 语义） */
+    nw_defer_post(2); /* classList 变更 → 守卫/display 全量重算（J11 语义，合并到帧前） */
 }
 
 static void cls_remove_w(NWNode* n, const wchar_t* cls) {
@@ -589,20 +599,20 @@ static void cls_remove_w(NWNode* n, const wchar_t* cls) {
 
 void nw_cls_remove(NWNode* n, const wchar_t* cls) {
     cls_remove_w(n, cls);
-    media_restyle_now(); /* classList 变更 → 全量重算 */
+    nw_defer_post(2); /* classList 变更 → 全量重算（合并） */
 }
 
 int nw_cls_toggle(NWNode* n, const wchar_t* cls) {
     /* contains ? remove : add（返回切换后是否拥有）；变更后全量重算 */
-    if (nw_cls_contains(n, cls)) { cls_remove_w(n, cls); nw_restyle_now(); return 0; }
-    nw_cls_add(n, cls); /* add 内含 restyle */
+    if (nw_cls_contains(n, cls)) { cls_remove_w(n, cls); nw_defer_post(2); return 0; }
+    nw_cls_add(n, cls); /* add 内含 defer */
     return 1;
 }
 
 int nw_cls_toggle_force(NWNode* n, const wchar_t* cls, int force) {
-    if (force) { nw_cls_add(n, cls); return 1; } /* add 内含 restyle */
+    if (force) { nw_cls_add(n, cls); return 1; } /* add 内含 defer */
     cls_remove_w(n, cls);
-    nw_restyle_now();
+    nw_defer_post(2);
     return 0;
 }
 
@@ -699,11 +709,14 @@ void nw_st_text_align(NWNode* n, int v) { if (n) n->text_align = v; }
 void nw_st_position(NWNode* n, int kind,
                     float t, int tk, float r, int rk, float b, int bk, float l, int lk) {
     if (!n) return;
-    n->st.pos_kind = kind;
-    n->st.inset[0] = t; n->st.inset_kind[0] = tk;
-    n->st.inset[1] = r; n->st.inset_kind[1] = rk;
-    n->st.inset[2] = b; n->st.inset_kind[2] = bk;
-    n->st.inset[3] = l; n->st.inset_kind[3] = lk;
+    /* 内联 style.position / style.inset 永久压过级联重放（对应部分让位） */
+    if (n->inline_pos < 0) n->st.pos_kind = kind;
+    if (n->inline_inset < 0) {
+        n->st.inset[0] = t; n->st.inset_kind[0] = tk;
+        n->st.inset[1] = r; n->st.inset_kind[1] = rk;
+        n->st.inset[2] = b; n->st.inset_kind[2] = bk;
+        n->st.inset[3] = l; n->st.inset_kind[3] = lk;
+    }
 }
 
 void nw_st_border_side(NWNode* n, int side, float w, float r, float g, float b, float a) {
@@ -793,6 +806,15 @@ void nw_st_reset(NWNode* n) {
     /* inline（JS）声明永久压过级联：reset 后立即恢复——级联重放遇到 inline 标志会让位，
      * 若这里不恢复，JS 设的背景图/颜色在每次 restyle 后消失 */
     if (n->inline_bg_res >= 0) { n->bg_img_res = n->inline_bg_res; n->bg_fit = n->inline_bg_fit; }
+    /* 内联定位/最小高同理：恢复快照，级联重放经 nw_st_position 的让位守卫跳过 */
+    if (n->inline_pos >= 0) n->st.pos_kind = n->inline_pos;
+    if (n->inline_inset >= 0) {
+        for (int i2 = 0; i2 < 4; i2++) {
+            n->st.inset[i2] = n->inline_inset_v[i2];
+            n->st.inset_kind[i2] = n->inline_inset_k[i2];
+        }
+    }
+    if (n->inline_minh >= 0) { n->st.min_h = n->inline_minh_v; n->st.min_h_kind = n->inline_minh_k; }
     n->ls_v = 0; n->ls_unit = 0;
     n->lh_v = 0; n->lh_unit = -1;
     n->font_size = 16.0f; n->font_weight = 400;
@@ -936,6 +958,99 @@ void nw_st_style_set(NWNode* n, const char* prop, const wchar_t* value) {
     } else if (!strcmp(prop, "display")) {
         if (!strcmp(val, "none")) { n->manual_hidden = 1; }
         else { n->manual_hidden = 0; }
+    } else if (!strcmp(prop, "position")) {
+        /* static/relative→0（流内） absolute→1 fixed→2；只改定位方式不动 inset。
+         * 空串（style.position=''）= 清内联 + 触发全量重算（级联重新接管） */
+        if (!*val) {
+            if (n->inline_pos >= 0) { n->inline_pos = -1; nw_defer_post(2); }
+        } else {
+            int k = 0;
+            if (!strcmp(val, "absolute")) k = 1;
+            else if (!strcmp(val, "fixed")) k = 2;
+            n->st.pos_kind = k;
+            n->inline_pos = k; /* 压过级联：reset 恢复 + nw_st_position 让位 */
+        }
+        dbg("[nw] style_set position '%s' -> kind=%d inline=%d node=%s#%s\n", val,
+            n->st.pos_kind, n->inline_pos, n->tag ? n->tag : "?", n->id ? n->id : "-");
+    } else if (!strcmp(prop, "top") || !strcmp(prop, "right") ||
+               !strcmp(prop, "bottom") || !strcmp(prop, "left") ||
+               !strcmp(prop, "inset")) {
+        /* 单边属性或 inset 简写。inset 序 trbl（1 值全边 / 2 值 tb rl / 3 值 t rl b / 4 值）。
+         * auto/空 清 inset；px/% 直存；vw/vh 按对应轴（左右 vw、上下 vh）换算 px。
+         * 内联 inset 整组压过级联（nw_st_position 重放时 inset 部分让位） */
+        if (!*val) {
+            if (n->inline_inset >= 0) { n->inline_inset = -1; nw_defer_post(2); }
+        } else {
+            char toks[4][64] = { 0 };
+            int nt = 0;
+            if (!strcmp(prop, "inset")) {
+                char tmp[256]; strncpy(tmp, val, 255); tmp[255] = 0;
+                for (char* p = strtok(tmp, " "); p && nt < 4; p = strtok(NULL, " ")) {
+                    strncpy(toks[nt], p, 63); toks[nt][63] = 0; nt++;
+                }
+                if (nt == 0) { strncpy(toks[0], val, 63); nt = 1; } /* 空白兜底 */
+            } else {
+                strncpy(toks[0], val, 63); nt = 1;
+            }
+            /* CSS 简写展开：nt 值 → 各边取值下标 */
+            int map[4];
+            if (nt == 1) { map[0]=map[1]=map[2]=map[3]=0; }
+            else if (nt == 2) { map[0]=0; map[1]=1; map[2]=0; map[3]=1; }
+            else if (nt == 3) { map[0]=0; map[1]=1; map[2]=2; map[3]=1; }
+            else { map[0]=0; map[1]=1; map[2]=2; map[3]=3; }
+            for (int side = 0; side < 4; side++) {
+                const char* tv = toks[map[side]];
+                n->inline_inset_v[side] = 0; n->inline_inset_k[side] = 0;
+                if (*tv && strcmp(tv, "auto") != 0) {
+                    char* endp = NULL;
+                    double num = strtod(tv, &endp);
+                    if (endp && endp != tv) {
+                        if (!strcmp(endp, "px") || !*endp) {
+                            n->st.inset[side] = (float)num; n->st.inset_kind[side] = 1;
+                            n->inline_inset_v[side] = (float)num; n->inline_inset_k[side] = 1;
+                        } else if (!strcmp(endp, "%")) {
+                            n->st.inset[side] = (float)num; n->st.inset_kind[side] = 2;
+                            n->inline_inset_v[side] = (float)num; n->inline_inset_k[side] = 2;
+                        } else if (!strcmp(endp, "vw") && (side % 2) == 1) {
+                            n->st.inset[side] = (float)num * (float)g_cw / 100.0f; n->st.inset_kind[side] = 1;
+                            n->inline_inset_v[side] = n->st.inset[side]; n->inline_inset_k[side] = 1;
+                        } else if (!strcmp(endp, "vh") && (side % 2) == 0) {
+                            n->st.inset[side] = (float)num * (float)g_ch / 100.0f; n->st.inset_kind[side] = 1;
+                            n->inline_inset_v[side] = n->st.inset[side]; n->inline_inset_k[side] = 1;
+                        }
+                    }
+                } else {
+                    n->st.inset[side] = 0; n->st.inset_kind[side] = 0;
+                }
+                if (strcmp(prop, "inset") != 0) {
+                    /* 单边属性：先清快照，只留目标边 */
+                    for (int s2 = 0; s2 < 4; s2++) { n->inline_inset_v[s2] = 0; n->inline_inset_k[s2] = 0; }
+                    n->inline_inset_v[side] = n->st.inset[side];
+                    n->inline_inset_k[side] = n->st.inset_kind[side];
+                    break;
+                }
+            }
+            n->inline_inset = 1;
+        }
+    } else if (!strcmp(prop, "min-height")) {
+        if (!*val) {
+            if (n->inline_minh >= 0) { n->inline_minh = -1; n->st.min_h = 0; n->st.min_h_kind = 0; }
+        } else {
+            char* endp = NULL;
+            double num = strtod(val, &endp);
+            if (endp && endp != val) {
+                if (!strcmp(endp, "px") || !*endp) {
+                    n->st.min_h = (float)num; n->st.min_h_kind = 1;
+                    n->inline_minh = 1; n->inline_minh_v = (float)num; n->inline_minh_k = 1;
+                } else if (!strcmp(endp, "%")) {
+                    n->st.min_h = (float)num; n->st.min_h_kind = 2;
+                    n->inline_minh = 1; n->inline_minh_v = (float)num; n->inline_minh_k = 2;
+                } else if (!strcmp(endp, "vh")) {
+                    n->st.min_h = (float)num * (float)g_ch / 100.0f; n->st.min_h_kind = 1;
+                    n->inline_minh = 1; n->inline_minh_v = n->st.min_h; n->inline_minh_k = 1;
+                }
+            }
+        }
     }
     nw_touch(n);
 }
@@ -2727,10 +2842,11 @@ void nw_dump_nodes(void) {
     for (int i = 0; i < g_node_count; i++) {
         NWNode* n = g_nodes[i];
         if (n->detached) { dbg("  [%2d] %s#%s DETACHED\n", i, n->tag ? n->tag : "text", n->id ? n->id : "-"); continue; }
-        dbg("  [%2d] %-6s#%-6s x=%6.1f y=%6.1f w=%6.1f h=%6.1f f=%5.1f cls=%s fd=%d fx=%d pg=%d%s len=%d\n",
+        dbg("  [%2d] %-6s#%-6s x=%6.1f y=%6.1f w=%6.1f h=%6.1f f=%5.1f cls=%s fd=%d fx=%d pg=%d pk=%d disp=%d%s len=%d\n",
             i, n->tag ? n->tag : "text", n->id ? n->id : "-",
             n->x, n->y, n->w, n->h, n->font_size, n->cls ? n->cls : "-",
             n->st.flex_direction, n->flex_explicit, n->page_id,
+            n->st.pos_kind, n->st.display,
             n->onclick ? " ONCLICK" : "", n->text ? n->text_len : -1);
         if (n->text && n->text_len && dbg_on()) {
             fprintf(stderr, "        c=(%.2f,%.2f,%.2f,%.2f) set=%d chain:",
@@ -2742,10 +2858,27 @@ void nw_dump_nodes(void) {
     }
 }
 
+/* ===== relayout 合并调度：一次 JS 回调里的 N 次 DOM 写只布局一次 =====
+ * nw_touch/classList 每次全量 relayout 在批量化脚本（toggleOverview 23 slide
+ * × 7 属性）下 = 163 次级联 × 165ms ≈ 30s 假死。改为脏标记 + PostMessage
+ * 合并：当前消息处理完（整段 JS 同步执行完）后统一布局一次。 */
+#define NWWM_RELAYOUT (WM_APP + 2)
+static int g_defer_posted = 0;
+static int g_defer_kind = 0; /* bit1=touch(纯 relayout) bit2=restyle(级联/media 全量重算) */
+static void nw_defer_post(int kind) {
+    if (!g_hwnd) return;
+    g_defer_kind |= kind;
+    if (!g_defer_posted) {
+        g_defer_posted = 1;
+        dbg("[nw] defer post kind=%d\n", kind);
+        PostMessageW(g_hwnd, NWWM_RELAYOUT, 0, 0);
+    }
+}
+
 void nw_touch(NWNode* n) {
     (void)n;
     if (g_batch_restyle) return; /* 批量重放期抑制：收尾由批量入口统一 relayout 一次 */
-    if (g_hwnd) { nw_relayout(); InvalidateRect(g_hwnd, NULL, FALSE); }
+    nw_defer_post(1);
 }
 
 static void ensure_invalidate(void) {
@@ -3132,9 +3265,12 @@ static void nw_draw(void) {
                 PostMessageW(g_hwnd, WM_LBUTTONUP, 0, MAKELPARAM(cx, cy));
             }
         } else if (scroll) {
-            int d = atoi(scroll);
-            dbg("[nw] test: synth wheel delta %d\n", d);
-            PostMessageW(g_hwnd, WM_MOUSEWHEEL, MAKEWPARAM(0, (WORD)d), 0);
+            int d = 0, times = 1;
+            sscanf(scroll, "%dx%d", &d, &times); /* "−360x10"=delta -360 连发 10 次 */
+            if (times < 1) times = 1;
+            dbg("[nw] test: synth wheel delta %d x%d\n", d, times);
+            for (int wi = 0; wi < times; wi++)
+                PostMessageW(g_hwnd, WM_MOUSEWHEEL, MAKEWPARAM(0, (WORD)d), 0);
         } else if (sel) {
             int x1, y1, x2, y2;
             if (sscanf(sel, "%d,%d,%d,%d", &x1, &y1, &x2, &y2) == 4) {
@@ -3946,6 +4082,15 @@ static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         break;
+    }
+    case NWWM_RELAYOUT: { /* 合并布局：本条消息 = 一次 JS 回调内全部 DOM 写的收尾 */
+        int kind = g_defer_kind;
+        g_defer_kind = 0; g_defer_posted = 0;
+        dbg("[nw] defer handle kind=%d\n", kind);
+        if (kind & 2) media_restyle_now();
+        else if (kind & 1) nw_relayout();
+        InvalidateRect(hwnd, NULL, FALSE);
+        return 0;
     }
     case WM_KEYDOWN: {
         int ctrl = GetKeyState(VK_CONTROL) & 0x8000;

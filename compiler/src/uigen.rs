@@ -83,6 +83,10 @@ struct Walk<'a> {
     sttab: Vec<String>,                    /* 本段函数名表（节点创建序） */
     counter: usize,
     globals: Vec<String>,                  /* 节点全局变量名（创建序） */
+    seen_ids: HashSet<String>,             /* 已发射过 el 指针的 id——getElementById
+                                              浏览器语义=文档序第一个；重复 id（多卡片
+                                              同 id）不得让后者覆盖（否则绑定挂错节点，
+                                              第一张卡的按钮永远点不了） */
 }
 
 impl<'a> Walk<'a> {
@@ -189,6 +193,7 @@ pub fn generate(doc: &Doc, user_rules: &[Rule], pfx: &str, multi: bool) -> Resul
             sttab: Vec::new(),
             counter: 0,
             globals: Vec::new(),
+            seen_ids: HashSet::new(),
         });
     }
 
@@ -929,7 +934,10 @@ fn emit_child(
             };
             w.create(format!("{} = nw_dom_create(\"{}\", {}, {});", v, el.tag, id_c, cls_c));
             if let Some(i) = &el.id {
-                w.create(format!("{}nw_el_{} = {};", w.pfx, sanitize(i), v));
+                let key = sanitize(i);
+                if w.seen_ids.insert(key) {
+                    w.create(format!("{}nw_el_{} = {};", w.pfx, sanitize(i), v));
+                }
             }
             w.create(format!("nw_dom_append({}, {});", parent_var, v));
             /* 属性登记（dataset/getAttribute 的运行时数据源；id/class 已单独传） */
@@ -1415,6 +1423,15 @@ fn emit_child(
             /* 背景图（级联序：background-size 无论先后都作用于 background-image） */
             if let Some(p) = bg_url {
                 let _ = writeln!(sst, "    nw_st_bgimg({}, L\"{}\", {});", v, escape_c(&p), bg_fit);
+            }
+            /* flex 容器未显式声明 align-items → CSS 初始值 stretch。
+             * 运行时 0=start 映射保持不变（显式 flex-start 仍发射 0），
+             * 缺省发射 3 让 .article-list 类容器子项拉伸/随视口收缩，
+             * 而非按 max-content 收缩适应（小窗口溢出） */
+            if sdecls.iter().any(|(k, v2)| v2.trim() == "flex" && k == "display")
+                && !sdecls.iter().any(|(k, _)| k == "align-items")
+            {
+                let _ = writeln!(sst, "    nw_st_align({}, 3); /* align-items 初始值 stretch */", v);
             }
             /* <img> 宽高属性 → 已前移到守卫循环**之前**发射（表现属性 = 特异性 0
              * 的作者声明，命中规则运行时覆盖）。是否发射只看静态级联 sdecls：

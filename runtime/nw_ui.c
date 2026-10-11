@@ -187,6 +187,10 @@ struct NWNode {
     int no_scroll;                /* 位于 fixed/absolute 祖先子树内——不随页面
                                      滚动（浏览器语义；否则 wheel 滚 5px 时
                                      hud 按钮视觉漂移 + 命中区错位=乱走点不中） */
+    int shrink_fit;               /* 收缩适应盒宽已由 relayout 预遍显式化（宽 auto
+                                     的 abs/fixed 盒按 max-content 写成 px）——
+                                     后续 relayout 必须重算（JS 填文本会变宽），
+                                     级联重放 reset 时清除 */
     int page_id;                  /* 所属页（多页导航） */
     int order;                    /* 文档序（= g_nodes 下标）——文本选择跨节点排序用 */
     int caret;                    /* textarea 光标（字符序） */
@@ -787,6 +791,7 @@ void nw_st_reset(NWNode* n) {
     memset(&z, 0, sizeof(z));
     z.col_gap = -1.0f; z.row_gap = -1.0f;
     n->st = z;
+    n->shrink_fit = 0; /* 显式化宽随 reset 回 auto，下轮 relayout 重算 */
     n->flex_explicit = 0;
     n->h_auto = 0;
     n->has_bg = 0;
@@ -2653,11 +2658,15 @@ static void read_pos(NWNode* n, float ox, float oy) {
     for (NWNode* c = n->first_child; c; c = c->next) read_pos(c, n->x, n->y);
 }
 
-/* 父元素自身宽度是否确定（能被文本 100% 引用） */
+/* 父元素自身宽度是否确定（能被文本 100% 引用）。
+ * align!=3（stretch）的 flex 容器交叉轴不定宽（子项收缩适应）——
+ * % 文本在其中会坍缩成 min-content（.article-list 卡片塌缩案例）；
+ * 块流容器已被 relayout 默认 align=3，不受影响 */
 static int width_definite_chain(NWNode* q) {
     if (!q) return 1;                        /* 根：视口确定 */
     if (q->st.width_kind != 0) return 1;     /* 显式宽度 */
     if (q->st.pos_kind != 0) return 0;       /* 收缩适应 */
+    if (q->st.align != 3) return 0;          /* flex start/center/end：交叉轴不定 */
     return width_definite_chain(q->parent);
 }
 static int parent_width_definite(NWNode* p) {
@@ -2680,6 +2689,47 @@ static int text_stretch_parent(NWNode* p) {
     return 1;
 }
 
+/* 子树 max-content 固有宽（收缩适应盒显式化用）。
+ * 近似：跳过 abs/fixed 子树（离流）、跳过 display:none；文本用大宽度
+ * 自然测量 dl_nat_w；column 容器取子女最大值，row 取累计值。 */
+static float intrinsic_max_w(NWNode* n) {
+    if (!n || n->detached || n->manual_hidden || n->st.display == 1) return 0;
+    float self = 0;
+    if (n->text && n->text_len > 0) {
+        self = ceilf(n->dl_nat_w);
+        if (n->tag && strcmp(n->tag, "text") != 0)
+            self += n->st.padding[1] + n->st.padding[3] + n->border_w[1] + n->border_w[3];
+        if (n->st.width_kind == 1) self = n->st.width +
+            (n->tag && strcmp(n->tag, "text") != 0
+                ? n->st.padding[1] + n->st.padding[3] + n->border_w[1] + n->border_w[3] : 0);
+    } else if (n->img_res >= 0 && n->img_w > 0.0f) {
+        self = n->img_w;
+        if (n->st.width_kind == 1) self = n->st.width;
+    } else if (n->st.width_kind == 1) {
+        self = n->st.width; /* 显式宽（taffy border-box 语义）直接采用——
+                             * 按钮等容器自有文本为 NULL（文本是子节点），
+                             * 不查显式宽会把 #nav 收缩盒算成裸字形宽 */
+    } else {
+        int col = (n->st.flex_direction == 1 || n->st.flex_direction == 3);
+        float sum = 0, mx = 0;
+        int cnt = 0;
+        for (NWNode* c = n->first_child; c; c = c->next) {
+            if (c->detached || c->manual_hidden || c->st.display == 1) continue;
+            if (c->st.pos_kind != 0) continue; /* 离流子女不参与固有宽 */
+            float cw = intrinsic_max_w(c) + c->st.margin[1] + c->st.margin[3];
+            if (col) { if (cw > mx) mx = cw; }
+            else sum += cw;
+            cnt++;
+        }
+        if (!col && cnt > 1) { /* 行容器子项间距 */
+            float gp = n->st.col_gap >= 0.0f ? n->st.col_gap : n->st.gap;
+            sum += gp * (float)(cnt - 1);
+        }
+        self = col ? mx : sum;
+    }
+    return self + n->st.padding[1] + n->st.padding[3] + n->border_w[1] + n->border_w[3];
+}
+
 static void nw_relayout(void) {
     if (!g_tree || !g_root || g_cw <= 0) return;
     g_root->st.width_kind = 1;  g_root->st.width = (float)g_cw;
@@ -2687,6 +2737,27 @@ static void nw_relayout(void) {
     g_content_h = 0.0f;
     /* 首次构建行盒（DOM 静态，构建期一次） */
     build_lineboxes(g_root);
+    /* 预遍 1：文本自然测量（固有宽/收缩适应的输入） */
+    for (int i = 0; i < g_node_count; i++) {
+        NWNode* n = g_nodes[i];
+        if (n->detached || n->manual_hidden || n->st.display == 1) continue;
+        if (n->text && n->text_len > 0 && !n->is_ta) get_layout(n, 10000.0f);
+    }
+    /* 预遍 2：absolute/fixed 且宽 auto 的收缩适应盒 → 按子树 max-content
+     * 显式化（浏览器 shrink-to-fit）。left/right 双定（拉伸）或文本盒跳过；
+     * 不显式化则 taffy 对盒内 % 子女解析为 0（.time 经典居中、img 18% 循环依赖） */
+    for (int i = 0; i < g_node_count; i++) {
+        NWNode* n = g_nodes[i];
+        if (n->detached || n->manual_hidden || n->st.display == 1) continue;
+        if (n->st.pos_kind == 0) continue;
+        if (n->st.width_kind != 0 && !n->shrink_fit) continue;
+        if (n->text && n->text_len > 0 && !n->is_ta) continue;
+        if (n->st.inset_kind[1] != 0 && n->st.inset_kind[3] != 0) continue; /* 左右双定=拉伸 */
+        float iw = intrinsic_max_w(n);
+        if (iw > (float)g_cw) iw = (float)g_cw;
+        if (iw > 0) { n->st.width_kind = 1; n->st.width = iw; n->shrink_fit = 1; }
+        else if (n->shrink_fit) { n->st.width_kind = 0; n->shrink_fit = 0; } /* 内容清空 → 还原 auto */
+    }
     for (int i = 0; i < g_node_count; i++) {
         NWNode* n = g_nodes[i];
         if (n->detached || n->manual_hidden) {
@@ -2717,9 +2788,15 @@ static void nw_relayout(void) {
             /* 大宽度下测自然尺寸 */
             get_layout(n, 10000.0f);
             if (n->tag && !strcmp(n->tag, "text")) {
-                /* 文本子节点：裸文本尺寸即盒尺寸 */
+                /* 文本子节点：裸文本尺寸即盒尺寸。
+                 * 块级上下文 → 撑满容器折行（浏览器语义；text-align 随 DWrite 生效）。
+                 * node_inline_self 对 text 恒真，不能作为这里的门——否则块内裸文本
+                 * 永远自然宽：引言 text-align:center 失效 + wraptest 词级折行失效 */
                 NWNode* p = n->parent;
-                if (p && !node_inline_self(n) && text_stretch_parent(p) && parent_width_definite(p)) {
+                int can_stretch = 1; /* 裸 text 节点：块流上下文即可撑满 */
+                /* 收缩适应 abs 盒已在预遍 2 显式化宽度 → parent_width_definite
+                 * 沿链可见，引言 % 撑满可解析（此前 .time 盒内文本靠左不居中） */
+                if (p && can_stretch && text_stretch_parent(p) && parent_width_definite(p)) {
                     n->st.width_kind = 2;  n->st.width = 100.0f; /* 撑满容器 → 折行 */
                 } else {
                     n->st.width_kind = 1;  n->st.width = ceilf(n->dl_nat_w);

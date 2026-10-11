@@ -3056,21 +3056,24 @@ static void draw_node_body(ID2D1RenderTarget* rt, NWNode* n, float sy) {
     if (rad > fminf(n->w, n->h) * 0.5f) rad = fminf(n->w, n->h) * 0.5f;
     D2D1_RECT_F box = { n->x, n->y + sy, n->x + n->w, n->y + sy + n->h };
 
-    /* box-shadow（外阴影近似：偏移半透明矩形，blur 分 3 层 alpha 展开） */
+    /* box-shadow（外阴影近似：K 层同心圆角矩形，alpha 按 (1-t)² 高斯式衰减
+     * 收缩和 telescoping 恰等于原 alpha——边缘平滑无硬带；spread 先扩基盒） */
     if (n->has_shadow && n->w > 0 && n->h > 0) {
+        enum { K = 7 };
         D2D1_COLOR_F sc = { n->sh_c[0], n->sh_c[1], n->sh_c[2], n->sh_c[3] };
-        float blur = n->sh_blur;
-        for (int pass = 2; pass >= 1; pass--) {
-            float b = blur * (float)pass / 3.0f;
-            D2D1_COLOR_F a2 = sc; a2.a = sc.a * (pass == 2 ? 0.25f : 0.45f);
+        float sp = n->sh_spread;
+        float bx0 = n->x - sp + n->sh_ox, by0 = n->y + sy - sp + n->sh_oy;
+        float bx1 = n->x + n->w + sp + n->sh_ox, by1 = n->y + sy + n->h + sp + n->sh_oy;
+        for (int pass = K; pass >= 1; pass--) {
+            float b = n->sh_blur * (float)pass / (float)K;
+            float t0 = (float)(pass - 1) / (float)K, t1 = (float)pass / (float)K;
+            float a = sc.a * ((1.0f - t0) * (1.0f - t0) - (1.0f - t1) * (1.0f - t1));
+            if (a <= 0.0f) continue;
+            D2D1_COLOR_F a2 = { sc.r, sc.g, sc.b, a };
             g_brush->lpVtbl->SetColor(g_brush, &a2);
-            D2D1_ROUNDED_RECT rr = { {
-                n->x - b + n->sh_ox, n->y + sy - b + n->sh_oy,
-                n->x + n->w + b + n->sh_ox, n->y + sy + n->h + b + n->sh_oy,
-            }, rad + b, rad + b };
+            D2D1_ROUNDED_RECT rr = { { bx0 - b, by0 - b, bx1 + b, by1 + b }, rad + b, rad + b };
             rt->lpVtbl->FillRoundedRectangle(rt, &rr, (ID2D1Brush*)g_brush);
         }
-        (void)sc;
     }
 
     /* 背景：渐变 or 纯色 */

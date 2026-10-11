@@ -2009,6 +2009,10 @@ static int res_find(const wchar_t* path) {
 
 static IWICImagingFactory* wic_factory(void) {
     if (!g_wicf) {
+        /* build_dom 阶段 nw_el_img_src→img_dims 早于 nw_app_run 的 CoInitialize：
+         * COM 未初始化时 CoCreateInstance 必败 → img_w/img_h 恒 0（logo 消失、
+         * 图片 h=0 塌缩）。与 ensure_dwrite 同款惰性初始化（同线程重复调用安全） */
+        CoInitialize(NULL);
         CoCreateInstance(&CLSID_WICImagingFactory, NULL, CLSCTX_INPROC_SERVER,
                          &IID_IWICImagingFactory, (void**)&g_wicf);
     }
@@ -2830,11 +2834,14 @@ static void nw_relayout(void) {
                 n->st.height_kind = 1; n->st.height = n->img_h;
             }
             n->st.aspect = n->img_w / n->img_h;
-            /* % 宽高 + 收缩适应父（fixed/absolute 无显式宽）：先以 max-content 定父盒，
-             * % 再对父盒解析；高度按固有比例随宽 */
+            /* % 宽高 + 定位父（fixed/absolute）：父宽未定 → 先以 max-content 定父盒，
+             * % 再对父盒解析；父高 auto 时 % 高循环依赖（浏览器按 auto 回退），
+             * 高度按固有比例随宽。父宽已定（如 shrink-fit 显式化后）取父宽为基准 */
             if (n->st.width_kind == 2 && n->st.height_kind == 2 &&
-                n->parent && n->parent->st.pos_kind != 0 && n->parent->st.width_kind == 0) {
-                float base_w = n->img_w < (float)g_cw ? n->img_w : (float)g_cw;
+                n->parent && n->parent->st.pos_kind != 0 &&
+                (n->parent->st.width_kind == 0 || n->parent->st.height_kind == 0)) {
+                float base_w = n->parent->st.width_kind == 1 ? n->parent->st.width
+                             : (n->img_w < (float)g_cw ? n->img_w : (float)g_cw);
                 float wpx = base_w * n->st.width / 100.0f;
                 n->st.width_kind = 1;  n->st.width = wpx;
                 n->st.height_kind = 1; n->st.height = wpx / n->st.aspect;
